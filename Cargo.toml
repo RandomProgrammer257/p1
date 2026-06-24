@@ -7,6 +7,9 @@ edition = "2024"
 device_query = "1.1"
 clearscreen = "3.0"
 bevy = "0.15.3"
+bevy_rapier2d = "0.28"
+rand = "0.8"
 
 [profile.dev]
 opt-level = 1
+ 
