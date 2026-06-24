@@ -1,8 +1,15 @@
 [package]
-name = "p1"
+name = "OrbitalFoxMechanics"
 version = "0.1.0"
 edition = "2024"
 
 [dependencies]
 device_query = "1.1"
 clearscreen = "3.0"
+bevy = "0.15.3"
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
