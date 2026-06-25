@@ -1,3 +1,4 @@
+use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
 use rand::Rng;
@@ -10,15 +11,19 @@ struct Rec;
 #[derive(Component)]
 struct Dir(f32);
 
+#[derive(Component)]
+struct Campos(f32, f32);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+        .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Update, player_system)
+        .add_systems(Update, mouse_scroll)
         .run();
 }
-
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -26,7 +31,12 @@ fn setup(
 ) {
     let mut rng = rand::thread_rng();
     // Камера (новый синтаксис 0.15)
-    commands.spawn(Camera2d);
+    commands.spawn((Camera2d, Campos(0.0, 0.0)));
+
+    commands.spawn((
+        Collider::cuboid(10000.0, 15.0),
+        Transform::from_xyz(0.0, -400.0, 0.0),
+    ));
 
     for _ in 0..1 {
         let x = rng.gen_range(-400.0..400.0);
@@ -40,7 +50,7 @@ fn setup(
                 RigidBody::Dynamic,
                 Collider::ball(50.0),
                 Velocity::linear(Vec2::new(0.0, 0.0)),
-                GravityScale(0.0),
+                GravityScale(1.0),
                 Dir(0.0),
                 Rec,
             ))
@@ -57,15 +67,16 @@ fn setup(
                 ));
 
                 parent.spawn((
-                    Mesh2d(meshes.add(Rectangle::new(10.0, 70.0))),
+                    Mesh2d(meshes.add(Rectangle::new(20.0, 140.0))),
                     MeshMaterial2d(
                         materials.add(Color::from(Color::srgba(0.086, 0.259, 0.157, 1.0))),
                     ),
                     Transform::from_xyz(-45.0, 0.0, 0.1),
                 ));
                 parent.spawn((
-                    Mesh2d(meshes.add(Rectangle::new(15.0, 75.0))),
+                    Mesh2d(meshes.add(Rectangle::new(30.0, 150.0))),
                     MeshMaterial2d(materials.add(Color::from(bevy::color::palettes::basic::BLACK))),
+                    Collider::cuboid(15.0, 75.0),
                     Transform::from_xyz(-45.0, 0.0, 0.0),
                 ));
             });
@@ -75,48 +86,46 @@ fn player_system(
     keys: Res<ButtonInput<KeyCode>>,
     time: Res<Time>,
     mut player_query: Query<(&mut Velocity, &mut Transform, &mut Dir), With<Rec>>,
+    mut camera_query: Query<
+        (&mut Transform, &mut Campos, &mut OrthographicProjection),
+        (With<Camera2d>, Without<Rec>),
+    >,
 ) {
     for (mut velocity, mut transform, mut dir) in &mut player_query {
         if keys.pressed(KeyCode::KeyD) {
-            velocity.angvel -= time.elapsed_secs() * 0.3 * PI / 180.0;
+            velocity.angvel -= time.elapsed_secs() * 0.8 * PI / 180.0;
         }
         if keys.pressed(KeyCode::KeyA) {
-            velocity.angvel += time.elapsed_secs() * 0.3 * PI / 180.0;
+            velocity.angvel += time.elapsed_secs() * 0.8 * PI / 180.0;
         }
         if keys.pressed(KeyCode::KeyW) {
-            velocity.linvel.x += time.elapsed_secs() * 0.3 * dir.0.cos();
-            velocity.linvel.y += time.elapsed_secs() * 0.3 * dir.0.sin();
+            velocity.linvel.x += time.elapsed_secs() * 10.0 * dir.0.cos();
+            velocity.linvel.y += time.elapsed_secs() * 10.0 * dir.0.sin();
         }
         if keys.pressed(KeyCode::KeyS) {
-            velocity.linvel.x -= time.elapsed_secs() * dir.0.cos() * 0.3;
-            velocity.linvel.y -= time.elapsed_secs() * dir.0.sin() * 0.3;
+            velocity.linvel.x -= time.elapsed_secs() * dir.0.cos() * 10.0;
+            velocity.linvel.y -= time.elapsed_secs() * dir.0.sin() * 10.0;
         }
-        end_line(&mut transform, &mut velocity);
 
         let forward = transform.local_x();
         dir.0 = forward.y.atan2(forward.x);
     }
+    for (mut transform) in &mut camera_query {
+        for (mut transform_p) in &player_query {
+            transform.0.translation = transform_p.1.translation;
+            transform.2.scale = transform.1.0;
+        }
+    }
 }
-
-fn end_line(transform: &mut Transform, velocity: &mut Velocity) {
-    if transform.translation.x > 400.0 {
-        transform.translation.x = 400.0;
-        velocity.linvel.x *= -0.2;
-        velocity.angvel *= 0.8;
-    }
-    if transform.translation.x < -400.0 {
-        transform.translation.x = -400.0;
-        velocity.linvel.x *= -0.2;
-        velocity.angvel *= 0.8;
-    }
-    if transform.translation.y > 400.0 {
-        transform.translation.y = 400.0;
-        velocity.linvel.y *= -0.2;
-        velocity.angvel *= 0.8;
-    }
-    if transform.translation.y < -400.0 {
-        transform.translation.y = -400.0;
-        velocity.linvel.y *= -0.2;
-        velocity.angvel *= 0.8;
+fn mouse_scroll(
+    time: Res<Time>,
+    mut scroll_events: EventReader<MouseWheel>,
+    mut camera_query: Query<&mut Campos, (With<Camera2d>, Without<Rec>)>,
+) {
+    for event in scroll_events.read() {
+        for mut transform in &mut camera_query {
+            transform.0 += event.y * 0.01 * time.elapsed_secs();
+            println!("Мыш {}", transform.0);
+        }
     }
 }
