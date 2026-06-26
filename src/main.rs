@@ -57,7 +57,7 @@ fn setup(
     commands
         .spawn((
             Mesh2d(meshes.add(Rectangle::new(20.0,5.0))),
-            MeshMaterial2d(materials.add(Color::srgba(0.086, 0.259, 0.157, 1.0))),
+            MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
             Transform::from_xyz(x, y, 0.1),
             RigidBody::Dynamic,
             Collider::cuboid(10.0,2.5),
