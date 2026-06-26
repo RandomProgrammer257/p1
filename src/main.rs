@@ -215,6 +215,7 @@ fn world_gravity_sistem(
             external_force.force.x = full_ext_forse.0;
             external_force.force.y = full_ext_forse.1;
             
+            
         println!("{}   {}",range,( external_force.force.x.powf(2.0) + external_force.force.y.powf(2.0)).powf(0.5));
 
         }
