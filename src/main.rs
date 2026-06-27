@@ -10,7 +10,7 @@ static G: f32 = 6.67 * 0.000_000_000_01;
 struct Planet;
 
 #[derive(Component)]
-struct PlanetId(u32);
+struct PlanetId(i32);
 
 #[derive(Component)]
 struct PlanetPreGravity(f32);
@@ -53,26 +53,25 @@ fn setup(
     let x = -500.0;
     let y = 0.0;
 
-    commands
-        .spawn((
-            Mesh2d(meshes.add(Rectangle::new(20.0, 5.0))),
-            MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
-            Transform::from_xyz(x, y, 0.1),
-            RigidBody::Dynamic,
-            Collider::cuboid(10.0, 2.5),
-            Velocity::linear(Vec2::new(0.0, 0.0)),
-            GravityScale(0.0),
-            AdditionalMassProperties::Mass(5000.0),
-            ExternalForce {
-                force: Vec2::new(0.0, 0.0), // Сила в Ньютонах (вправо)
-                torque: 0.0,
-            },
-            Dir(0.0),
-            Rec,
-        ));
+    commands.spawn((
+        Mesh2d(meshes.add(Rectangle::new(20.0, 5.0))),
+        MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
+        Transform::from_xyz(x, y, 0.1),
+        RigidBody::Dynamic,
+        Collider::cuboid(10.0, 2.5),
+        Velocity::linear(Vec2::new(0.0, 0.0)),
+        GravityScale(0.0),
+        AdditionalMassProperties::Mass(5000.0),
+        ExternalForce {
+            force: Vec2::new(0.0, 0.0), // Сила в Ньютонах (вправо)
+            torque: 0.0,
+        },
+        Dir(0.0),
+        Rec,
+    ));
 }
 
-fn planet_prepare(density: f32, radius: f32) -> (f32,f32,f32) {
+fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
     let volume = 4.0 / 3.0 * PI * radius.powf(3.0);
     let mass = density * volume;
     (mass, G * mass, volume)
@@ -90,10 +89,10 @@ fn spawn_planet(
     density: f32,
     speed: Vec2,
     color: Color,
-    id: u32,
+    id: i32,
 ) {
-    let mass = planet_prepare(density,radius).0;
-    let planet_pre_gravity = planet_prepare(density,radius).1;
+    let mass = planet_prepare(density, radius).0;
+    let planet_pre_gravity = planet_prepare(density, radius).1;
     let volume = planet_prepare(density, radius).2;
 
     commands.spawn((
@@ -172,26 +171,6 @@ fn world_spawn(
     );
 }
 
-fn player_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
-    mut player_query: Query<
-        (&mut Velocity, &mut Transform, &mut Dir, &mut ExternalForce),
-        With<Rec>,
-    >,
-    mut camera_query: Query<
-        (&mut Transform, &mut Campos, &mut OrthographicProjection),
-        (With<Camera2d>, Without<Rec>),
-    >,
-) {
-    for mut transform in &mut camera_query {
-        for transform_p in &player_query {
-            transform.0.translation = transform_p.1.translation;
-            transform.2.scale = transform.1.0;
-        }
-    }
-}
-
 fn world_gravity_for_planets(
     mut planet_query: Query<
         (
@@ -242,6 +221,58 @@ fn world_gravity_for_planets(
         external_force_planet_1.force.y = -full_ext_planets_force.1;
     }
 }
+fn player_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut player_query: Query<
+        (
+            &Transform,
+            &mut ExternalForce,
+            &AdditionalMassProperties,
+            &mut Dir,
+        ),
+        (With<Rec>, Without<Planet>),
+    >,
+    mut camera_query: Query<
+        (&mut Transform, &mut Campos, &mut OrthographicProjection),
+        (With<Camera2d>, Without<Rec>),
+    >,
+) {
+    for (transform, mut external_force, mass, mut direction) in &mut player_query {
+        let mut full_ext_forse = (0.0, 0.0);
+        external_force.torque = 0.0;
+
+        if keys.pressed(KeyCode::KeyD) {
+            external_force.torque -= 200000.0;
+        }
+
+        if keys.pressed(KeyCode::KeyA) {
+            external_force.torque += 200000.0;
+        }
+
+        if keys.pressed(KeyCode::KeyW) {
+            full_ext_forse.0 += direction.0.cos() * 600000.0;
+            full_ext_forse.1 += direction.0.sin() * 600000.0;
+        }
+        if keys.pressed(KeyCode::KeyS) {
+            full_ext_forse.0 -= direction.0.cos() * 600000.0;
+            full_ext_forse.1 -= direction.0.sin() * 600000.0;
+        }
+
+        let forward = transform.local_x();
+        direction.0 = forward.y.atan2(forward.x);
+
+        external_force.force.x += full_ext_forse.0;
+        external_force.force.y += full_ext_forse.1;
+    }
+
+    for mut transform in &mut camera_query {
+        for (transform_p, mut external_force, mass, mut direction) in &player_query {
+            transform.0.translation = transform_p.translation;
+            transform.2.scale = transform.1.0;
+        }
+    }
+}
 
 fn world_gravity_sistem(
     keys: Res<ButtonInput<KeyCode>>,
@@ -287,28 +318,6 @@ fn world_gravity_sistem(
             full_ext_forse.1 += planet_pre_gravity.0 / range.powf(3.0)
                 * (transform_planet.translation.y - transform.translation.y)
                 * get_mass;
-
-            external_force.torque = 0.0;
-
-            if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -= 200000.0;
-            }
-
-            if keys.pressed(KeyCode::KeyA) {
-                external_force.torque += 200000.0;
-            }
-
-            if keys.pressed(KeyCode::KeyW) {
-                full_ext_forse.0 += direction.0.cos() * 600000.0;
-                full_ext_forse.1 += direction.0.sin() * 600000.0;
-            }
-            if keys.pressed(KeyCode::KeyS) {
-                full_ext_forse.0 -= direction.0.cos() * 600000.0;
-                full_ext_forse.1 -= direction.0.sin() * 600000.0;
-            }
-
-            let forward = transform.local_x();
-            direction.0 = forward.y.atan2(forward.x);
 
             external_force_planet.force.x = -full_ext_forse.0;
             external_force_planet.force.y = -full_ext_forse.1;
