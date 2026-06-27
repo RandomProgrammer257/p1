@@ -56,11 +56,11 @@ fn setup(
 
     commands
         .spawn((
-            Mesh2d(meshes.add(Rectangle::new(20.0,5.0))),
+            Mesh2d(meshes.add(Rectangle::new(20.0, 5.0))),
             MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
             Transform::from_xyz(x, y, 0.1),
             RigidBody::Dynamic,
-            Collider::cuboid(10.0,2.5),
+            Collider::cuboid(10.0, 2.5),
             Velocity::linear(Vec2::new(0.0, 0.0)),
             GravityScale(0.0),
             AdditionalMassProperties::Mass(5000.0),
@@ -82,7 +82,7 @@ fn setup(
                 MeshMaterial2d(materials.add(Color::from(bevy::color::palettes::basic::BLACK))),
                 Transform::from_xyz(1.0, 0.0, 0.2),
             ));
-           
+
                        parent.spawn((
                            Mesh2d(meshes.add(Rectangle::new(20.0, 140.0))),
                            MeshMaterial2d(materials.add(Color::from(Color::srgba(0.086, 0.259, 0.157, 1.0)))),
@@ -98,6 +98,41 @@ fn setup(
         });
 }
 
+fn spawn_planet(
+    commands: &mut Commands,
+    meshes: &mut ResMut<Assets<Mesh>>,
+    materials: &mut ResMut<Assets<ColorMaterial>>,
+
+    radius: f32,
+    pos_x: f32,
+    pos_y: f32,
+    pos_z: f32,
+    density: f32,
+    speed: Vec2,
+    color: Color,
+    id: u32,
+) {
+    commands.spawn((
+        Mesh2d(meshes.add(Circle::new(radius))),
+        MeshMaterial2d(materials.add(color)),
+        Transform::from_xyz(pos_x, pos_y, pos_z),
+        RigidBody::Dynamic,
+        Collider::ball(radius),
+        Velocity::linear(speed),
+        PlanetId(id),
+        PlanetVolume(4.0 / 3.0 * PI * radius.powf(3.0)),
+        PlanetDensity(density),
+        PlanetPreGravity(0.0),
+        ExternalForce {
+            force: Vec2::new(0.0, 0.0),
+            torque: 0.0,
+        },
+        GravityScale(0.0),
+        AdditionalMassProperties::Mass(0.0),
+        Planet,
+    ));
+}
+
 fn world_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -109,25 +144,19 @@ fn world_spawn(
     let pos_z = 0.0;
     let density = 274_000_000.0;
 
-    commands.spawn((
-        Mesh2d(meshes.add(Circle::new(radius))),
-        MeshMaterial2d(materials.add(Color::srgba(0.086, 0.259, 0.157, 1.0))),
-        Transform::from_xyz(pos_x, pos_y, pos_z),
-        RigidBody::Dynamic,
-        Collider::ball(radius),
-        Velocity::linear(Vec2::new(0.0, 0.0)),
-        PlanetId(0),
-        PlanetVolume(4.0 / 3.0 * PI * radius.powf(3.0)),
-        PlanetDensity(density),
-        PlanetPreGravity(0.0),
-        ExternalForce {
-            force: Vec2::new(0.0, 0.0),
-            torque: 0.0,
-        },
-        GravityScale(0.0),
-        AdditionalMassProperties::Mass(0.0),
-        Planet,
-    ));
+    spawn_planet(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        radius,
+        pos_x,
+        pos_y,
+        pos_z,
+        density,
+        Vec2::new(0.0, 0.0),
+        Color::srgba(0.086, 0.259, 0.157, 1.0),
+        3,
+    );
 
     let radius = 400.0;
     let pos_x = 5000.0;
@@ -135,25 +164,19 @@ fn world_spawn(
     let pos_z = 0.0;
     let density = 274_000_000.0;
 
-    commands.spawn((
-        Mesh2d(meshes.add(Circle::new(radius))),
-        MeshMaterial2d(materials.add(Color::from(bevy::color::palettes::basic::GRAY))),
-        Transform::from_xyz(pos_x, pos_y, pos_z),
-        RigidBody::Dynamic,
-        Collider::ball(radius),
-        Velocity::linear(Vec2::new(0.0, 200.0)),
-        PlanetId(0),
-        PlanetVolume(4.0 / 3.0 * PI * radius.powf(3.0)),
-        PlanetDensity(density),
-        PlanetPreGravity(0.0),
-        ExternalForce {
-            force: Vec2::new(0.0, 0.0),
-            torque: 0.0,
-        },
-        GravityScale(0.0),
-        AdditionalMassProperties::Mass(0.0),
-        Planet,
-    ));
+    spawn_planet(
+        &mut commands,
+        &mut meshes,
+        &mut materials,
+        radius,
+        pos_x,
+        pos_y,
+        pos_z,
+        density,
+        Vec2::new(0.0, 200.0),
+        Color::from(bevy::color::palettes::basic::GRAY),
+        1,
+    );
 }
 
 fn player_system(
@@ -295,7 +318,7 @@ fn world_gravity_sistem(
                 * (transform_planet.translation.y - transform.translation.y)
                 * get_mass;
 
-                external_force.torque = 0.0;
+            external_force.torque = 0.0;
 
             if keys.pressed(KeyCode::KeyD) {
                 external_force.torque -= 200000.0;
@@ -322,7 +345,6 @@ fn world_gravity_sistem(
 
             external_force.force.x = full_ext_forse.0;
             external_force.force.y = full_ext_forse.1;
-
         }
     }
     world_gravity_for_planets(planet_query);
