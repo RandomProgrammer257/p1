@@ -37,7 +37,6 @@ fn main() {
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Startup, world_spawn)
-        .add_systems(Update, planet_prepare)
         .add_systems(Update, player_system)
         .add_systems(Update, mouse_scroll)
         .add_systems(Update, world_gravity_sistem)
@@ -70,32 +69,13 @@ fn setup(
             },
             Dir(0.0),
             Rec,
-        ))
-        .with_children(|parent| {
-            /* parent.spawn((
-                Mesh2d(meshes.add(Circle::new(5.0))),
-                MeshMaterial2d(materials.add(Color::from(bevy::color::palettes::basic::BLACK))),
-                Transform::from_xyz(0.0, 0.0, 0.0),
-            ));
-            parent.spawn((
-                Mesh2d(meshes.add(Circle::new(1.0))),
-                MeshMaterial2d(materials.add(Color::from(bevy::color::palettes::basic::BLACK))),
-                Transform::from_xyz(1.0, 0.0, 0.2),
-            ));
+        ));
+}
 
-                       parent.spawn((
-                           Mesh2d(meshes.add(Rectangle::new(20.0, 140.0))),
-                           MeshMaterial2d(materials.add(Color::from(Color::srgba(0.086, 0.259, 0.157, 1.0)))),
-                           Transform::from_xyz(-45.0, 0.0, 0.1),
-                       ));
-                       parent.spawn((
-                           Mesh2d(meshes.add(Rectangle::new(30.0, 150.0))),
-                           MeshMaterial2d(materials.add(Color::from(bevy::color::palettes::basic::BLACK))),
-                           Collider::cuboid(15.0, 75.0),
-                           Transform::from_xyz(-45.0, 0.0, 0.0),
-                       ));
-            */
-        });
+fn planet_prepare(density: f32, radius: f32) -> (f32,f32,f32) {
+    let volume = 4.0 / 3.0 * PI * radius.powf(3.0);
+    let mass = density * volume;
+    (mass, G * mass, volume)
 }
 
 fn spawn_planet(
@@ -112,6 +92,10 @@ fn spawn_planet(
     color: Color,
     id: u32,
 ) {
+    let mass = planet_prepare(density,radius).0;
+    let planet_pre_gravity = planet_prepare(density,radius).1;
+    let volume = planet_prepare(density, radius).2;
+
     commands.spawn((
         Mesh2d(meshes.add(Circle::new(radius))),
         MeshMaterial2d(materials.add(color)),
@@ -120,15 +104,15 @@ fn spawn_planet(
         Collider::ball(radius),
         Velocity::linear(speed),
         PlanetId(id),
-        PlanetVolume(4.0 / 3.0 * PI * radius.powf(3.0)),
+        PlanetVolume(volume),
         PlanetDensity(density),
-        PlanetPreGravity(0.0),
+        PlanetPreGravity(planet_pre_gravity),
         ExternalForce {
             force: Vec2::new(0.0, 0.0),
             torque: 0.0,
         },
         GravityScale(0.0),
-        AdditionalMassProperties::Mass(0.0),
+        AdditionalMassProperties::Mass(mass),
         Planet,
     ));
 }
@@ -137,6 +121,15 @@ fn world_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
+    mut query: Query<
+        (
+            &mut PlanetPreGravity,
+            &mut AdditionalMassProperties,
+            &PlanetDensity,
+            &PlanetVolume,
+        ),
+        With<Planet>,
+    >,
 ) {
     let radius = 1280.0;
     let pos_x = 100.0;
@@ -196,29 +189,6 @@ fn player_system(
             transform.0.translation = transform_p.1.translation;
             transform.2.scale = transform.1.0;
         }
-    }
-}
-
-fn planet_prepare(
-    mut planet_query: Query<
-        (
-            &mut PlanetPreGravity,
-            &mut AdditionalMassProperties,
-            &PlanetDensity,
-            &PlanetVolume,
-        ),
-        With<Planet>,
-    >,
-) {
-    for (mut pre_gravity, mut mass, density, volume) in &mut planet_query {
-        *mass = AdditionalMassProperties::Mass(density.0 * volume.0);
-        let mut get_mass = 0.0;
-        match *mass {
-            AdditionalMassProperties::Mass(m) => get_mass = m,
-            _ => get_mass = 0.0,
-        }
-
-        pre_gravity.0 = G * get_mass;
     }
 }
 
