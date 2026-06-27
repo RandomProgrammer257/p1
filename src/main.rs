@@ -40,9 +40,11 @@ fn main() {
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Startup, world_spawn)
-        .add_systems(Update, player_system)
-        .add_systems(Update, mouse_scroll)
-        .add_systems(Update, world_gravity_sistem)
+        .add_systems(
+            Update,
+            (all_player_moving, player_system, world_gravity_sistem).chain(),
+        )
+        .add_systems(Update, camera_system)
         .run();
 }
 fn setup(
@@ -66,6 +68,7 @@ fn setup(
         GravityScale(0.0),
         AdditionalMassProperties::Mass(5.0),
         Restitution::coefficient(0.0),
+        Friction::coefficient(0.8),
         ExternalForce {
             force: Vec2::new(0.0, 0.0), // Сила в Ньютонах (вправо)
             torque: 0.0,
@@ -107,9 +110,9 @@ fn spawn_planet(
         RigidBody::Dynamic,
         Collider::ball(radius),
         Velocity {
-        linvel: speed,  // Линейная скорость
-        angvel: 0.2,                     // Угловая скорость (радиан/сек)
-    },
+            linvel: speed, // Линейная скорость
+            angvel: 0.2,   // Угловая скорость (радиан/сек)
+        },
         PlanetId(id),
         PlanetVolume(volume),
         PlanetDensity(density),
@@ -138,7 +141,7 @@ fn world_spawn(
         With<Planet>,
     >,
 ) {
-    let radius = 1280.0;
+    let radius = 1020.0;
     let pos_x = 100.0;
     let pos_y = 100.0;
     let pos_z = 0.0;
@@ -246,7 +249,6 @@ fn player_system(
         player_query.iter_mut()
     {
         let mut full_ext_forse = (0.0, 0.0);
-        external_force.torque = 0.0;
         let mut full_velocity = (0.0, 0.0);
 
         //для походов
@@ -261,13 +263,13 @@ fn player_system(
 
         if fly.0 == false {
             if keys.pressed(KeyCode::KeyD) {
-                full_velocity.0 = (direction.0 - PI / 2.0).cos() * 3.0;
-                full_velocity.1 = (direction.0 - PI / 2.0).sin() * 3.0;
+                full_velocity.0 += (direction.0 - PI / 2.0).cos() * 3.0;
+                full_velocity.1 += (direction.0 - PI / 2.0).sin() * 3.0;
             }
 
             if keys.pressed(KeyCode::KeyA) {
-                full_velocity.0 = (direction.0 + PI / 2.0).cos() * 3.0;
-                full_velocity.1 = (direction.0 + PI / 2.0).sin() * 3.0;
+                full_velocity.0 += (direction.0 + PI / 2.0).cos() * 3.0;
+                full_velocity.1 += (direction.0 + PI / 2.0).sin() * 3.0;
             }
 
             if keys.just_pressed(KeyCode::KeyW) {
@@ -301,21 +303,80 @@ fn player_system(
         velocity.linvel.y += full_velocity.1;
         external_force.force.x += full_ext_forse.0;
         external_force.force.y += full_ext_forse.1;
-        
-            println!("{}",external_force.force.y);
+    }
+}
+
+fn camera_system(
+    time: Res<Time>,
+    mut scroll_events: EventReader<MouseWheel>,
+    mut player_query: Query<
+        (
+            &mut Velocity,
+            &mut Transform,
+            &mut ExternalForce,
+            &AdditionalMassProperties,
+            &mut Dir,
+            &mut IsFly,
+        ),
+        (With<Rec>, Without<Planet>),
+    >,
+    mut camera_query: Query<
+        (&mut Transform, &mut Campos, &mut OrthographicProjection),
+        (With<Camera2d>, Without<Rec>),
+    >,
+) {
+    for (mut transform, mut cam_pos, mut ortho) in &mut camera_query {
+        for (vel, transform_p, mut external_force, mass, mut direction, fly) in &player_query {
+            transform.translation = transform_p.translation;
+            ortho.scale = cam_pos.0;
+        }
     }
 
-    for mut transform in &mut camera_query {
-        for (vel, transform_p, mut external_force, mass, mut direction, fly) in &player_query {
-            transform.0.translation = transform_p.translation;
-            transform.2.scale = transform.1.0;
+    for event in scroll_events.read() {
+        for (transform, mut cam_pos, ortho) in &mut camera_query {
+            cam_pos.0 += event.y * 10.0 * time.delta_secs();
         }
     }
 }
 
-fn world_gravity_sistem(
+fn all_player_moving(
     keys: Res<ButtonInput<KeyCode>>,
 
+    mut planet_query: Query<
+        (
+            &PlanetPreGravity,
+            &mut ExternalForce,
+            &Transform,
+            &AdditionalMassProperties,
+        ),
+        With<Planet>,
+    >,
+    mut player_query: Query<
+        (
+            &mut Transform,
+            &mut ExternalForce,
+            &mut Velocity,
+            &AdditionalMassProperties,
+            &mut Dir,
+            &IsFly,
+        ),
+        (With<Rec>, Without<Planet>),
+    >,
+) {
+    for (mut transform, mut external_force, mut velocity, mass, mut direction, mut isFly) in
+        &mut player_query
+    {
+        reset_player_moving(&mut external_force, &mut velocity);
+    }
+}
+fn reset_player_moving(external_force: &mut ExternalForce, velocity: &mut Velocity) {
+    external_force.force = Vec2::ZERO;
+    external_force.torque = 0.0;
+    velocity.linvel = Vec2::ZERO;
+    velocity.angvel = 0.0;
+}
+
+fn world_gravity_sistem(
     mut planet_query: Query<
         (
             &PlanetPreGravity,
@@ -379,33 +440,19 @@ fn world_gravity_sistem(
         }
 
         if fly.0 == false {
-            if range_m > 1285.0{
-            external_force.force.x = full_ext_forse.0 * range_m.powf(0.5);
-            external_force.force.y = full_ext_forse.1 * range_m.powf(0.5);
-            }
+            external_force.force.x += full_ext_forse.0 * range_m.powf(0.6);
+            external_force.force.y += full_ext_forse.1 * range_m.powf(0.6);
+
             let direction = Vec2::new(min_dx, min_dy).normalize();
 
             let angle = direction.y.atan2(direction.x);
             transform.rotation = Quat::from_rotation_z(angle + PI);
 
             velocity.angvel = 0.0;
-
         } else {
-            external_force.force.x = full_ext_forse.0;
-            external_force.force.y = full_ext_forse.1;
+            external_force.force.x += full_ext_forse.0;
+            external_force.force.y += full_ext_forse.1;
         }
     }
     world_gravity_for_planets(planet_query);
-}
-
-fn mouse_scroll(
-    time: Res<Time>,
-    mut scroll_events: EventReader<MouseWheel>,
-    mut camera_query: Query<&mut Campos, (With<Camera2d>, Without<Rec>)>,
-) {
-    for event in scroll_events.read() {
-        for mut transform in &mut camera_query {
-            transform.0 += event.y * 10.0 * time.delta_secs();
-        }
-    }
 }
