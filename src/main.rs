@@ -42,7 +42,7 @@ fn main() {
         .add_systems(Startup, world_spawn)
         .add_systems(
             Update,
-            (all_player_moving, player_system, world_gravity_sistem).chain(),
+            (all_player_moving, world_gravity_for_planets).chain(),
         )
         .add_systems(Update, camera_system)
         .run();
@@ -131,15 +131,6 @@ fn world_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
-    query: Query<
-        (
-            &mut PlanetPreGravity,
-            &mut AdditionalMassProperties,
-            &PlanetDensity,
-            &PlanetVolume,
-        ),
-        With<Planet>,
-    >,
 ) {
     let radius = 1020.0;
     let pos_x = 100.0;
@@ -165,7 +156,7 @@ fn world_spawn(
     let pos_x = 5000.0;
     let pos_y = 100.0;
     let pos_z = 0.0;
-    let density = 280_000_0000.0;
+    let density = 280_000_000.0;
 
     spawn_planet(
         &mut commands,
@@ -204,7 +195,7 @@ fn world_gravity_for_planets(
         })
         .collect();
 
-    for (planet_pre_gravity_1, mut external_force_planet_1, transform_planet_1, mass_1) in
+    for (planet_pre_gravity_1, mut external_force_planet_1, transform_planet_1, _mass) in
         planet_query.iter_mut()
     {
         let mut full_ext_planets_force = (0.0, 0.0);
@@ -227,17 +218,12 @@ fn world_gravity_for_planets(
         external_force_planet_1.force.y = -full_ext_planets_force.1;
     }
 }
-fn player_system(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut player_query: Query<
-        (
-            &mut Velocity,
-            &mut Transform,
-            &mut ExternalForce,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
+
+fn camera_system(
+    time: Res<Time>,
+    mut scroll_events: EventReader<MouseWheel>,
+    player_query: Query<
+        (&mut Velocity, &mut Transform, &mut Dir, &mut IsFly),
         (With<Rec>, Without<Planet>),
     >,
     mut camera_query: Query<
@@ -245,7 +231,36 @@ fn player_system(
         (With<Camera2d>, Without<Rec>),
     >,
 ) {
-    for (mut velocity, mut transform, mut external_force, mass, mut direction, mut fly) in
+    for (mut transform, cam_pos, mut ortho) in &mut camera_query {
+        for (_vel, transform_p, _direction, _fly) in &player_query {
+            transform.translation = transform_p.translation;
+            ortho.scale = cam_pos.0;
+        }
+    }
+
+    for event in scroll_events.read() {
+        for (_transform, mut cam_pos, _ortho) in &mut camera_query {
+            cam_pos.0 += event.y * 10.0 * time.delta_secs();
+        }
+    }
+}
+
+
+fn player_control(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut player_query: Query<
+        (
+            &mut Transform,
+            &mut ExternalForce,
+            &mut Velocity,
+            &AdditionalMassProperties,
+            &mut Dir,
+            &mut IsFly,
+        ),
+        (With<Rec>, Without<Planet>),
+    >,
+) {
+    for (transform, mut external_force, mut velocity, _, mut direction, mut fly) in
         player_query.iter_mut()
     {
         let mut full_ext_forse = (0.0, 0.0);
@@ -262,19 +277,19 @@ fn player_system(
         }
 
         if fly.0 == false {
-            if keys.pressed(KeyCode::KeyD) {
-                full_velocity.0 += (direction.0 - PI / 2.0).cos() * 3.0;
-                full_velocity.1 += (direction.0 - PI / 2.0).sin() * 3.0;
+            if keys.pressed(KeyCode::KeyD){
+                full_velocity.0 = (direction.0 - PI / 2.0).cos() * 3.0;
+                full_velocity.1 = (direction.0 - PI / 2.0).sin() * 3.0;
             }
 
-            if keys.pressed(KeyCode::KeyA) {
-                full_velocity.0 += (direction.0 + PI / 2.0).cos() * 3.0;
-                full_velocity.1 += (direction.0 + PI / 2.0).sin() * 3.0;
+            if keys.pressed(KeyCode::KeyA){
+                full_velocity.0 = (direction.0 + PI / 2.0).cos() * 3.0;
+                full_velocity.1 = (direction.0 + PI / 2.0).sin() * 3.0;
             }
 
             if keys.just_pressed(KeyCode::KeyW) {
-                full_ext_forse.0 += (direction.0).cos() * 600.0;
-                full_ext_forse.1 += (direction.0).sin() * 600.0;
+                full_ext_forse.0 = (direction.0).cos() * 600000.0;
+                full_ext_forse.1 = (direction.0).sin() * 600000.0;
             }
         } else {
             //для полетов
@@ -306,38 +321,6 @@ fn player_system(
     }
 }
 
-fn camera_system(
-    time: Res<Time>,
-    mut scroll_events: EventReader<MouseWheel>,
-    mut player_query: Query<
-        (
-            &mut Velocity,
-            &mut Transform,
-            &mut ExternalForce,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
-    mut camera_query: Query<
-        (&mut Transform, &mut Campos, &mut OrthographicProjection),
-        (With<Camera2d>, Without<Rec>),
-    >,
-) {
-    for (mut transform, mut cam_pos, mut ortho) in &mut camera_query {
-        for (vel, transform_p, mut external_force, mass, mut direction, fly) in &player_query {
-            transform.translation = transform_p.translation;
-            ortho.scale = cam_pos.0;
-        }
-    }
-
-    for event in scroll_events.read() {
-        for (transform, mut cam_pos, ortho) in &mut camera_query {
-            cam_pos.0 += event.y * 10.0 * time.delta_secs();
-        }
-    }
-}
 
 fn all_player_moving(
     keys: Res<ButtonInput<KeyCode>>,
@@ -358,7 +341,7 @@ fn all_player_moving(
             &mut Velocity,
             &AdditionalMassProperties,
             &mut Dir,
-            &IsFly,
+            &mut IsFly,
         ),
         (With<Rec>, Without<Planet>),
     >,
@@ -368,15 +351,27 @@ fn all_player_moving(
     {
         reset_player_moving(&mut external_force, &mut velocity);
     }
+    player_gravity_moving(keys, player_query, planet_query);
+    
 }
+
 fn reset_player_moving(external_force: &mut ExternalForce, velocity: &mut Velocity) {
     external_force.force = Vec2::ZERO;
     external_force.torque = 0.0;
-    velocity.linvel = Vec2::ZERO;
-    velocity.angvel = 0.0;
 }
-
-fn world_gravity_sistem(
+fn player_gravity_moving(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut player_query: Query<
+        (
+            &mut Transform,
+            &mut ExternalForce,
+            &mut Velocity,
+            &AdditionalMassProperties,
+            &mut Dir,
+            &mut IsFly,
+        ),
+        (With<Rec>, Without<Planet>),
+    >,
     mut planet_query: Query<
         (
             &PlanetPreGravity,
@@ -386,20 +381,8 @@ fn world_gravity_sistem(
         ),
         With<Planet>,
     >,
-    mut player_query: Query<
-        (
-            &mut Transform,
-            &mut ExternalForce,
-            &mut Velocity,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
 ) {
-    for (mut transform, mut external_force, mut velocity, mass, mut direction, fly) in
-        &mut player_query
+    for (mut transform, mut external_force, mut velocity, mass, direction, fly) in player_query.iter_mut()
     {
         let mut get_mass = 0.0;
         match *mass {
@@ -413,7 +396,7 @@ fn world_gravity_sistem(
         let mut max_grav = 0.0;
         let mut range_m = 0.0;
 
-        for (planet_pre_gravity, mut external_force_planet, transform_planet, massiv) in
+        for (planet_pre_gravity, mut external_force_planet, transform_planet, _massiv) in
             &mut planet_query
         {
             let dx = transform_planet.translation.x - transform.translation.x;
@@ -449,10 +432,11 @@ fn world_gravity_sistem(
             transform.rotation = Quat::from_rotation_z(angle + PI);
 
             velocity.angvel = 0.0;
+            //   println!("{} {}", external_force.force.x, external_force.force.y);
         } else {
             external_force.force.x += full_ext_forse.0;
             external_force.force.y += full_ext_forse.1;
         }
     }
-    world_gravity_for_planets(planet_query);
+    player_control(keys, player_query);
 }
