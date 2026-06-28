@@ -1,25 +1,24 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::*;
-use rand::Rng;
 
 static PI: f32 = std::f32::consts::PI;
-static G: f32 = 6.67 * 0.000_000_000_01;
+static G: f32 = 6.67;
 
 #[derive(Component)]
 struct Planet;
 
-#[derive(Component)]
-struct PlanetId(i32);
+// #[derive(Component)]
+// struct PlanetId(i32);
 
 #[derive(Component)]
 struct PlanetPreGravity(f32);
 
-#[derive(Component)]
-struct PlanetDensity(f32);
+// #[derive(Component)]
+// struct PlanetDensity(f32);
 
-#[derive(Component)]
-struct PlanetVolume(f32);
+// #[derive(Component)]
+// struct PlanetVolume(f32);
 
 #[derive(Component)]
 struct IsFly(bool);
@@ -33,6 +32,9 @@ struct Dir(f32);
 #[derive(Component)]
 struct Campos(f32);
 
+#[derive(Component)]
+struct CameraMode(u32);
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -42,18 +44,25 @@ fn main() {
         .add_systems(Startup, world_spawn)
         .add_systems(
             Update,
-            (all_player_moving, world_gravity_for_planets).chain(),
+            (
+                reset_forces_system,
+                world_gravity_for_planets_system,
+                player_gravity_system,
+                player_control_system,
+                camera_system,
+            )
+                .chain(),
         )
-        .add_systems(Update, camera_system)
         .run();
 }
+
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut rng = rand::thread_rng();
-    commands.spawn((Camera2d, Campos(10.0)));
+    let _rng = rand::thread_rng();
+    commands.spawn((Camera2d, Campos(10.0), CameraMode(1)));
 
     let x = 1380.0;
     let y = 0.0;
@@ -68,15 +77,94 @@ fn setup(
         GravityScale(0.0),
         AdditionalMassProperties::Mass(5.0),
         Restitution::coefficient(0.0),
-        Friction::coefficient(0.8),
         ExternalForce {
-            force: Vec2::new(0.0, 0.0), // Сила в Ньютонах (вправо)
+            force: Vec2::new(0.0, 0.0),
             torque: 0.0,
         },
         IsFly(false),
         Dir(0.0),
         Rec,
     ));
+}
+
+fn camera_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    time: Res<Time>,
+    mut scroll_events: EventReader<MouseWheel>,
+    player_query: Query<(&Velocity, &Transform, &Dir, &IsFly), With<Rec>>,
+    mut camera_query: Query<
+        (
+            &mut Transform,
+            &mut Campos,
+            &mut OrthographicProjection,
+            &mut CameraMode,
+        ),
+        With<Camera2d>,
+    >,
+) {
+    for (_, _, _, mut mode) in &mut camera_query {
+        change_camera_mode(&keys, &mut mode);
+    }
+
+    for (mut transform, cam_pos, mut ortho, mode) in &mut camera_query {
+        for (_vel, transform_p, _direction, _fly) in &player_query {
+            if mode.0 == 0 {
+                transform.translation = transform_p.translation;
+            }
+            if mode.0 == 1 {
+                transform.translation = transform_p.translation;
+
+                let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
+                transform.rotation = Quat::from_rotation_z(angle - PI / 2.0);
+            }
+            if mode.0 == 2 {
+                transform.translation = transform_p.translation;
+
+                let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
+                transform.rotation = Quat::from_rotation_z(angle + PI / 2.0);
+            }
+
+            ortho.scale = cam_pos.0;
+        }
+    }
+
+    for event in scroll_events.read() {
+        for (_, mut cam_pos, _, _) in &mut camera_query {
+            cam_pos.0 += event.y * 10.0 * time.delta_secs();
+        }
+    }
+}
+
+fn change_camera_mode(keys: &Res<ButtonInput<KeyCode>>, mode: &mut CameraMode) {
+    if keys.just_pressed(KeyCode::KeyV) {
+        mode.0 = (mode.0 + 1) % 3;
+    }
+}
+
+fn world_spawn(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let radius = 128.0;
+    let pos_x = 100.0;
+    let pos_y = 100.0;
+    let pos_z = 0.0;
+    let density = 1_000_000.0;
+
+    spawn_planet(
+        (&mut commands,
+        &mut meshes,
+        &mut materials),
+        radius,
+        (pos_x,
+        pos_y,
+        pos_z),
+        density,
+        Vec2::new(0.0, 0.0),
+        Color::srgba(0.086, 0.259, 0.157, 1.0),
+     //   3,
+    );
 }
 
 fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
@@ -86,37 +174,32 @@ fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
 }
 
 fn spawn_planet(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
+    external: (&mut Commands,&mut ResMut<Assets<Mesh>>,&mut ResMut<Assets<ColorMaterial>>,),
 
     radius: f32,
-    pos_x: f32,
-    pos_y: f32,
-    pos_z: f32,
+    pos: ( f32, f32, f32),
     density: f32,
     speed: Vec2,
     color: Color,
-    id: i32,
+  //  _id: i32,
 ) {
-    let mass = planet_prepare(density, radius).0;
-    let planet_pre_gravity = planet_prepare(density, radius).1;
-    let volume = planet_prepare(density, radius).2;
+    let (mass, planet_pre_gravity, _volume) = planet_prepare(density, radius);
 
-    commands.spawn((
-        Mesh2d(meshes.add(Circle::new(radius))),
-        MeshMaterial2d(materials.add(color)),
-        Transform::from_xyz(pos_x, pos_y, pos_z),
+    external.0.spawn((
+        Mesh2d(external.1.add(Circle::new(radius))),
+        MeshMaterial2d(external.2.add(color)),
+        Transform::from_xyz(pos.0, pos.1, pos.2),
         RigidBody::Dynamic,
         Collider::ball(radius),
         Velocity {
-            linvel: speed, // Линейная скорость
-            angvel: 0.2,   // Угловая скорость (радиан/сек)
+            linvel: speed,
+            angvel: 0.2,
         },
-        PlanetId(id),
-        PlanetVolume(volume),
-        PlanetDensity(density),
+      //  PlanetId(id),
+       // PlanetVolume(volume),
+        //PlanetDensity(density),
         PlanetPreGravity(planet_pre_gravity),
+        Friction::coefficient(0.3),
         ExternalForce {
             force: Vec2::new(0.0, 0.0),
             torque: 0.0,
@@ -127,53 +210,21 @@ fn spawn_planet(
     ));
 }
 
-fn world_spawn(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
+fn reset_forces_system(
+    mut player_query: Query<&mut ExternalForce, (With<Rec>, Without<Planet>)>,
+    mut planet_query: Query<&mut ExternalForce, With<Planet>>,
 ) {
-    let radius = 1020.0;
-    let pos_x = 100.0;
-    let pos_y = 100.0;
-    let pos_z = 0.0;
-    let density = 274_000_000.0;
-
-    spawn_planet(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        radius,
-        pos_x,
-        pos_y,
-        pos_z,
-        density,
-        Vec2::new(0.0, 0.0),
-        Color::srgba(0.086, 0.259, 0.157, 1.0),
-        3,
-    );
-
-    let radius = 400.0;
-    let pos_x = 5000.0;
-    let pos_y = 100.0;
-    let pos_z = 0.0;
-    let density = 280_000_000.0;
-
-    spawn_planet(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        radius,
-        pos_x,
-        pos_y,
-        pos_z,
-        density,
-        Vec2::new(0.0, 200.0),
-        Color::from(bevy::color::palettes::basic::GRAY),
-        1,
-    );
+    for mut force in player_query.iter_mut() {
+        force.force = Vec2::ZERO;
+        force.torque = 0.0;
+    }
+    for mut force in planet_query.iter_mut() {
+        force.force = Vec2::ZERO;
+        force.torque = 0.0;
+    }
 }
 
-fn world_gravity_for_planets(
+fn world_gravity_for_planets_system(
     mut planet_query: Query<
         (
             &PlanetPreGravity,
@@ -219,81 +270,128 @@ fn world_gravity_for_planets(
     }
 }
 
-fn camera_system(
-    time: Res<Time>,
-    mut scroll_events: EventReader<MouseWheel>,
-    player_query: Query<
-        (&mut Velocity, &mut Transform, &mut Dir, &mut IsFly),
-        (With<Rec>, Without<Planet>),
+fn player_gravity_system(
+    mut planet_query: Query<
+        (
+            &PlanetPreGravity,
+            &mut ExternalForce,
+            &Transform,
+            &AdditionalMassProperties,
+        ),
+        With<Planet>,
     >,
-    mut camera_query: Query<
-        (&mut Transform, &mut Campos, &mut OrthographicProjection),
-        (With<Camera2d>, Without<Rec>),
-    >,
-) {
-    for (mut transform, cam_pos, mut ortho) in &mut camera_query {
-        for (_vel, transform_p, _direction, _fly) in &player_query {
-            transform.translation = transform_p.translation;
-            ortho.scale = cam_pos.0;
-        }
-    }
-
-    for event in scroll_events.read() {
-        for (_transform, mut cam_pos, _ortho) in &mut camera_query {
-            cam_pos.0 += event.y * 10.0 * time.delta_secs();
-        }
-    }
-}
-
-
-fn player_control(
-    keys: Res<ButtonInput<KeyCode>>,
     mut player_query: Query<
         (
             &mut Transform,
             &mut ExternalForce,
             &mut Velocity,
             &AdditionalMassProperties,
+            &IsFly,
+        ),
+        With<Rec>,
+    >,
+) {
+    for (mut transform, mut external_force, mut velocity, mass, fly) in
+        player_query.iter_mut()
+    {
+       let get_mass: f32 = match *mass {
+            AdditionalMassProperties::Mass(m) => m,
+            _ => 0.0,
+        };
+
+        let mut full_ext_forse = (0.0, 0.0);
+        let mut min_dx = 0.0;
+        let mut min_dy = 0.0;
+        let mut max_grav = 0.0;
+        let mut range_m = 0.0;
+
+        for (planet_pre_gravity, mut external_force_planet, transform_planet, _massiv) in
+            &mut planet_query
+        {
+            let dx = transform_planet.translation.x - transform.translation.x;
+            let dy = transform_planet.translation.y - transform.translation.y;
+
+            let range = (dx * dx + dy * dy).sqrt();
+
+            if range < f32::EPSILON {
+                continue;
+            }
+
+            let gravity_x = planet_pre_gravity.0 / range.powf(3.0) * dx * get_mass;
+            let gravity_y = planet_pre_gravity.0 / range.powf(3.0) * dy * get_mass;
+
+            let grav_magnitude = (gravity_x * gravity_x + gravity_y * gravity_y).sqrt();
+            if grav_magnitude > max_grav {
+                max_grav = grav_magnitude;
+                min_dx = dx;
+                min_dy = dy;
+                range_m = range;
+            }
+
+            full_ext_forse.0 += gravity_x;
+            full_ext_forse.1 += gravity_y;
+
+            external_force_planet.force.x = -full_ext_forse.0;
+            external_force_planet.force.y = -full_ext_forse.1;
+        }
+
+        if !fly.0 {
+            external_force.force.x += full_ext_forse.0;
+            external_force.force.y += full_ext_forse.1;
+
+            if range_m > f32::EPSILON {
+                let direction = Vec2::new(min_dx, min_dy).normalize();
+                let angle = direction.y.atan2(direction.x);
+                transform.rotation = Quat::from_rotation_z(angle + PI);
+            }
+
+            velocity.angvel = 0.0;
+        } else {
+            external_force.force.x += full_ext_forse.0;
+            external_force.force.y += full_ext_forse.1;
+        }
+    }
+}
+
+fn player_control_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut player_query: Query<
+        (
+            &mut Transform,
+            &mut ExternalForce,
+            &mut Velocity,
             &mut Dir,
             &mut IsFly,
         ),
-        (With<Rec>, Without<Planet>),
+        With<Rec>,
     >,
 ) {
-    for (transform, mut external_force, mut velocity, _, mut direction, mut fly) in
+    for (transform, mut external_force, mut velocity, mut direction, mut fly) in
         player_query.iter_mut()
     {
         let mut full_ext_forse = (0.0, 0.0);
         let mut full_velocity = (0.0, 0.0);
 
-        //для походов
-
         if keys.just_pressed(KeyCode::KeyF) {
-            if fly.0 == true {
-                fly.0 = false
-            } else {
-                fly.0 = true
-            }
+            fly.0 = !fly.0;
         }
 
-        if fly.0 == false {
-            if keys.pressed(KeyCode::KeyD){
+        if !fly.0 {
+            if keys.pressed(KeyCode::KeyD) {
                 full_velocity.0 = (direction.0 - PI / 2.0).cos() * 3.0;
                 full_velocity.1 = (direction.0 - PI / 2.0).sin() * 3.0;
             }
 
-            if keys.pressed(KeyCode::KeyA){
+            if keys.pressed(KeyCode::KeyA) {
                 full_velocity.0 = (direction.0 + PI / 2.0).cos() * 3.0;
                 full_velocity.1 = (direction.0 + PI / 2.0).sin() * 3.0;
             }
 
             if keys.just_pressed(KeyCode::KeyW) {
-                full_ext_forse.0 = (direction.0).cos() * 600000.0;
-                full_ext_forse.1 = (direction.0).sin() * 600000.0;
+                full_ext_forse.0 = direction.0.cos() * 500.0;
+                full_ext_forse.1 = direction.0.sin() * 500.0;
             }
         } else {
-            //для полетов
-
             if keys.pressed(KeyCode::KeyD) {
                 external_force.torque -= 20000.0;
             }
@@ -311,6 +409,7 @@ fn player_control(
                 full_ext_forse.1 -= direction.0.sin() * 60000.0;
             }
         }
+
         let forward = transform.local_x();
         direction.0 = forward.y.atan2(forward.x);
 
@@ -319,124 +418,4 @@ fn player_control(
         external_force.force.x += full_ext_forse.0;
         external_force.force.y += full_ext_forse.1;
     }
-}
-
-
-fn all_player_moving(
-    keys: Res<ButtonInput<KeyCode>>,
-
-    mut planet_query: Query<
-        (
-            &PlanetPreGravity,
-            &mut ExternalForce,
-            &Transform,
-            &AdditionalMassProperties,
-        ),
-        With<Planet>,
-    >,
-    mut player_query: Query<
-        (
-            &mut Transform,
-            &mut ExternalForce,
-            &mut Velocity,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
-) {
-    for (mut transform, mut external_force, mut velocity, mass, mut direction, mut isFly) in
-        &mut player_query
-    {
-        reset_player_moving(&mut external_force, &mut velocity);
-    }
-    player_gravity_moving(keys, player_query, planet_query);
-    
-}
-
-fn reset_player_moving(external_force: &mut ExternalForce, velocity: &mut Velocity) {
-    external_force.force = Vec2::ZERO;
-    external_force.torque = 0.0;
-}
-fn player_gravity_moving(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut player_query: Query<
-        (
-            &mut Transform,
-            &mut ExternalForce,
-            &mut Velocity,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
-    mut planet_query: Query<
-        (
-            &PlanetPreGravity,
-            &mut ExternalForce,
-            &Transform,
-            &AdditionalMassProperties,
-        ),
-        With<Planet>,
-    >,
-) {
-    for (mut transform, mut external_force, mut velocity, mass, direction, fly) in player_query.iter_mut()
-    {
-        let mut get_mass = 0.0;
-        match *mass {
-            AdditionalMassProperties::Mass(m) => get_mass = m,
-            _ => get_mass = 0.0,
-        }
-
-        let mut full_ext_forse = (0.0, 0.0);
-        let mut min_dx = 0.0;
-        let mut min_dy = 0.0;
-        let mut max_grav = 0.0;
-        let mut range_m = 0.0;
-
-        for (planet_pre_gravity, mut external_force_planet, transform_planet, _massiv) in
-            &mut planet_query
-        {
-            let dx = transform_planet.translation.x - transform.translation.x;
-            let dy = transform_planet.translation.y - transform.translation.y;
-
-            let range = (dx.powf(2.0) + dy.powf(2.0)).powf(0.5);
-
-            let gravity_x = planet_pre_gravity.0 / range.powf(3.0) * dx * get_mass;
-            let gravity_y = planet_pre_gravity.0 / range.powf(3.0) * dy * get_mass;
-
-            if ((gravity_x.powf(2.0) + gravity_y.powf(2.0)).abs()).powf(0.5) > max_grav {
-                max_grav = (gravity_x.powf(2.0) + gravity_y.powf(2.0)).powf(0.5);
-                min_dx = dx;
-                min_dy = dy;
-
-                range_m = range;
-            }
-
-            full_ext_forse.0 += gravity_x;
-            full_ext_forse.1 += gravity_y;
-
-            external_force_planet.force.x = -full_ext_forse.0;
-            external_force_planet.force.y = -full_ext_forse.1;
-        }
-
-        if fly.0 == false {
-            external_force.force.x += full_ext_forse.0 * range_m.powf(0.6);
-            external_force.force.y += full_ext_forse.1 * range_m.powf(0.6);
-
-            let direction = Vec2::new(min_dx, min_dy).normalize();
-
-            let angle = direction.y.atan2(direction.x);
-            transform.rotation = Quat::from_rotation_z(angle + PI);
-
-            velocity.angvel = 0.0;
-            //   println!("{} {}", external_force.force.x, external_force.force.y);
-        } else {
-            external_force.force.x += full_ext_forse.0;
-            external_force.force.y += full_ext_forse.1;
-        }
-    }
-    player_control(keys, player_query);
 }
