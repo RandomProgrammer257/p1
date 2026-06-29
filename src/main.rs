@@ -1,15 +1,14 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
+use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
+//use rand::Rng;
 
 static PI: f32 = std::f32::consts::PI;
-static G: f32 = 6.67;
+static G: f32 = 6.67e-11;
 
 #[derive(Component)]
 struct Planet;
-
-// #[derive(Component)]
-// struct PlanetId(i32);
 
 #[derive(Component)]
 struct PlanetPreGravity(f32);
@@ -35,6 +34,49 @@ struct Campos(f32);
 #[derive(Component)]
 struct CameraMode(u32);
 
+#[derive(Component)]
+struct PlayerCollis(bool);
+
+#[derive(Bundle)]
+struct PlayerBundle {
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    transform: Transform,
+    rigid_body: RigidBody,
+    collider: Collider,
+    velocity: Velocity,
+    gravity_scale: GravityScale,
+    mass: AdditionalMassProperties,
+    friction: Friction,
+    restitution: Restitution,
+    external_force: ExternalForce,
+    is_fly: IsFly,
+    dir: Dir,
+    rec: Rec,
+    active_events: ActiveEvents,
+    is_collis: PlayerCollis,
+}
+
+#[derive(Bundle)]
+struct PlanetBundle {
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    transform: Transform,
+    rigid_body: RigidBody,
+    collider: Collider,
+    velocity: Velocity,
+    // planet_volume: PlanetVolume,
+    // planet_density: PlanetDensity,
+    planet_pre_gravity: PlanetPreGravity,
+    friction: Friction,
+    restitution: Restitution,
+    external_force: ExternalForce,
+    gravity_scale: GravityScale,
+    mass: AdditionalMassProperties,
+    planet: Planet,
+    active_events: ActiveEvents,
+}
+
 fn main() {
     App::new()
         .add_plugins(DefaultPlugins)
@@ -53,7 +95,32 @@ fn main() {
             )
                 .chain(),
         )
+        .add_systems(Update, collision_handler)
         .run();
+}
+
+fn collision_handler(
+    mut events: EventReader<CollisionEvent>,
+    mut player_query: Query<&mut PlayerCollis, With<Rec>>,
+) {
+    for event in events.read() {
+        match event {
+            CollisionEvent::Started(e1, _e2, _) => {
+                if player_query.contains(*e1)
+                    && let Ok(mut is_collis) = player_query.get_mut(*e1)
+                {
+                    is_collis.0 = true;
+                }
+            }
+            CollisionEvent::Stopped(e1, _e2, _) => {
+                if player_query.contains(*e1)
+                    && let Ok(mut is_collis) = player_query.get_mut(*e1)
+                {
+                    is_collis.0 = false;
+                }
+            }
+        }
+    }
 }
 
 fn setup(
@@ -62,29 +129,34 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let _rng = rand::thread_rng();
-    commands.spawn((Camera2d, Campos(10.0), CameraMode(1)));
+    commands.spawn((Camera2d, Campos(10.0), CameraMode(0)));
 
     let x = 1380.0;
     let y = 0.0;
 
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(5.0, 20.0))),
-        MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
-        Transform::from_xyz(x, y, 0.1),
-        RigidBody::Dynamic,
-        Collider::cuboid(2.5, 10.0),
-        Velocity::linear(Vec2::new(0.0, 0.0)),
-        GravityScale(0.0),
-        AdditionalMassProperties::Mass(5.0),
-        Restitution::coefficient(0.0),
-        ExternalForce {
+    let player_bundle = PlayerBundle {
+        mesh: Mesh2d(meshes.add(Rectangle::new(5.0, 20.0))),
+        material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
+        transform: Transform::from_xyz(x, y, 0.1),
+        rigid_body: RigidBody::Dynamic,
+        collider: Collider::cuboid(2.5, 10.0),
+        velocity: Velocity::linear(Vec2::new(0.0, 0.0)),
+        gravity_scale: GravityScale(0.0),
+        mass: AdditionalMassProperties::Mass(5.0),
+        friction: Friction::coefficient(0.6),
+        restitution: Restitution::coefficient(0.0),
+        external_force: ExternalForce {
             force: Vec2::new(0.0, 0.0),
             torque: 0.0,
         },
-        IsFly(false),
-        Dir(0.0),
-        Rec,
-    ));
+        is_fly: IsFly(false),
+        dir: Dir(0.0),
+        rec: Rec,
+        active_events: ActiveEvents::COLLISION_EVENTS,
+        is_collis: PlayerCollis(false),
+    };
+
+    commands.spawn(player_bundle);
 }
 
 fn camera_system(
@@ -99,7 +171,7 @@ fn camera_system(
             &mut OrthographicProjection,
             &mut CameraMode,
         ),
-        With<Camera2d>,
+        (With<Camera2d>, Without<Rec>),
     >,
 ) {
     for (_, _, _, mut mode) in &mut camera_query {
@@ -150,20 +222,15 @@ fn world_spawn(
     let pos_x = 100.0;
     let pos_y = 100.0;
     let pos_z = 0.0;
-    let density = 1_000_000.0;
+    let density = 274_000_000_0.0;
 
     spawn_planet(
-        (&mut commands,
-        &mut meshes,
-        &mut materials),
+        (&mut commands, &mut meshes, &mut materials),
         radius,
-        (pos_x,
-        pos_y,
-        pos_z),
+        (pos_x, pos_y, pos_z),
         density,
         Vec2::new(0.0, 0.0),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
-     //   3,
     );
 }
 
@@ -174,40 +241,47 @@ fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
 }
 
 fn spawn_planet(
-    external: (&mut Commands,&mut ResMut<Assets<Mesh>>,&mut ResMut<Assets<ColorMaterial>>,),
-
+    ext: (
+        &mut Commands,
+        &mut ResMut<Assets<Mesh>>,
+        &mut ResMut<Assets<ColorMaterial>>,
+    ),
     radius: f32,
-    pos: ( f32, f32, f32),
+    pos: (f32, f32, f32),
     density: f32,
     speed: Vec2,
     color: Color,
-  //  _id: i32,
 ) {
     let (mass, planet_pre_gravity, _volume) = planet_prepare(density, radius);
 
-    external.0.spawn((
-        Mesh2d(external.1.add(Circle::new(radius))),
-        MeshMaterial2d(external.2.add(color)),
-        Transform::from_xyz(pos.0, pos.1, pos.2),
-        RigidBody::Dynamic,
-        Collider::ball(radius),
-        Velocity {
+    let compound = vec![(Vec2::new(0.0, 0.0), 0.0_f32, Collider::ball(radius))];
+
+    let planet_bundle = PlanetBundle {
+        mesh: Mesh2d(ext.1.add(Circle::new(radius))),
+        material: MeshMaterial2d(ext.2.add(color)),
+        transform: Transform::from_xyz(pos.0, pos.1, pos.2),
+        rigid_body: RigidBody::Dynamic,
+        collider: Collider::compound(compound),
+        velocity: Velocity {
             linvel: speed,
             angvel: 0.2,
         },
-      //  PlanetId(id),
-       // PlanetVolume(volume),
-        //PlanetDensity(density),
-        PlanetPreGravity(planet_pre_gravity),
-        Friction::coefficient(0.3),
-        ExternalForce {
+        //planet_volume: PlanetVolume(volume),
+        //  planet_density: PlanetDensity(density),
+        planet_pre_gravity: PlanetPreGravity(planet_pre_gravity),
+        friction: Friction::coefficient(0.6),
+        restitution: Restitution::coefficient(0.0),
+        external_force: ExternalForce {
             force: Vec2::new(0.0, 0.0),
             torque: 0.0,
         },
-        GravityScale(0.0),
-        AdditionalMassProperties::Mass(mass),
-        Planet,
-    ));
+        gravity_scale: GravityScale(0.0),
+        mass: AdditionalMassProperties::Mass(mass),
+        planet: Planet,
+        active_events: ActiveEvents::COLLISION_EVENTS,
+    };
+
+    ext.0.spawn(planet_bundle);
 }
 
 fn reset_forces_system(
@@ -287,14 +361,15 @@ fn player_gravity_system(
             &mut Velocity,
             &AdditionalMassProperties,
             &IsFly,
+            &PlayerCollis,
         ),
-        With<Rec>,
+        (With<Rec>, Without<Planet>),
     >,
 ) {
-    for (mut transform, mut external_force, mut velocity, mass, fly) in
+    for (mut transform, mut external_force, mut velocity, mass, fly, collision) in
         player_query.iter_mut()
     {
-       let get_mass: f32 = match *mass {
+        let get_mass = match *mass {
             AdditionalMassProperties::Mass(m) => m,
             _ => 0.0,
         };
@@ -336,19 +411,21 @@ fn player_gravity_system(
         }
 
         if !fly.0 {
-            external_force.force.x += full_ext_forse.0;
-            external_force.force.y += full_ext_forse.1;
-
+            if !collision.0 {
+                external_force.force.x += full_ext_forse.0;
+                external_force.force.y += full_ext_forse.1;
+            }
             if range_m > f32::EPSILON {
                 let direction = Vec2::new(min_dx, min_dy).normalize();
                 let angle = direction.y.atan2(direction.x);
                 transform.rotation = Quat::from_rotation_z(angle + PI);
             }
-
             velocity.angvel = 0.0;
         } else {
-            external_force.force.x += full_ext_forse.0;
-            external_force.force.y += full_ext_forse.1;
+            if !collision.0 {
+                external_force.force.x += full_ext_forse.0;
+                external_force.force.y += full_ext_forse.1;
+            }
         }
     }
 }
@@ -357,16 +434,17 @@ fn player_control_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut player_query: Query<
         (
-            &mut Transform,
+            &Transform,
             &mut ExternalForce,
             &mut Velocity,
             &mut Dir,
             &mut IsFly,
+            &PlayerCollis,
         ),
         With<Rec>,
     >,
 ) {
-    for (transform, mut external_force, mut velocity, mut direction, mut fly) in
+    for (transform, mut external_force, mut velocity, mut direction, mut fly, is_collis) in
         player_query.iter_mut()
     {
         let mut full_ext_forse = (0.0, 0.0);
@@ -377,19 +455,21 @@ fn player_control_system(
         }
 
         if !fly.0 {
-            if keys.pressed(KeyCode::KeyD) {
-                full_velocity.0 = (direction.0 - PI / 2.0).cos() * 3.0;
-                full_velocity.1 = (direction.0 - PI / 2.0).sin() * 3.0;
-            }
+            if is_collis.0 {
+                if keys.pressed(KeyCode::KeyD) {
+                    full_velocity.0 += (direction.0 - PI / 2.0).cos() * 1.0;
+                    full_velocity.1 += (direction.0 - PI / 2.0).sin() * 1.0;
+                }
 
-            if keys.pressed(KeyCode::KeyA) {
-                full_velocity.0 = (direction.0 + PI / 2.0).cos() * 3.0;
-                full_velocity.1 = (direction.0 + PI / 2.0).sin() * 3.0;
-            }
+                if keys.pressed(KeyCode::KeyA) {
+                    full_velocity.0 += (direction.0 + PI / 2.0).cos() * 1.0;
+                    full_velocity.1 += (direction.0 + PI / 2.0).sin() * 1.0;
+                }
 
-            if keys.just_pressed(KeyCode::KeyW) {
-                full_ext_forse.0 = direction.0.cos() * 500.0;
-                full_ext_forse.1 = direction.0.sin() * 500.0;
+                if keys.just_pressed(KeyCode::KeyW) {
+                    full_ext_forse.0 = direction.0.cos() * 600000.0;
+                    full_ext_forse.1 = direction.0.sin() * 600000.0;
+                }
             }
         } else {
             if keys.pressed(KeyCode::KeyD) {
