@@ -2,6 +2,7 @@ use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
+use bevy::window::WindowResolution;
 //use rand::Rng;
 
 static PI: f32 = std::f32::consts::PI;
@@ -18,6 +19,12 @@ struct PlanetPreGravity(f32);
 
 // #[derive(Component)]
 // struct PlanetVolume(f32);
+
+#[derive(Component)]
+struct PlanetRadius(f32);
+
+#[derive(Component)]
+struct PlanetExtraGravZone(f32);
 
 #[derive(Component)]
 struct IsFly(bool);
@@ -65,6 +72,7 @@ struct PlanetBundle {
     rigid_body: RigidBody,
     collider: Collider,
     velocity: Velocity,
+    radius: PlanetRadius,
     // planet_volume: PlanetVolume,
     // planet_density: PlanetDensity,
     planet_pre_gravity: PlanetPreGravity,
@@ -73,14 +81,23 @@ struct PlanetBundle {
     external_force: ExternalForce,
     gravity_scale: GravityScale,
     mass: AdditionalMassProperties,
+    zone: PlanetExtraGravZone,
     planet: Planet,
     active_events: ActiveEvents,
 }
 
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: WindowResolution::new(1600.0, 1200.0),
+                title: "Orbital fox".to_string(),
+                position: WindowPosition::At(IVec2::new(0, 0)),
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(64.0))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Startup, world_spawn)
@@ -88,9 +105,9 @@ fn main() {
             Update,
             (
                 reset_forces_system,
-                world_gravity_for_planets_system,
                 player_gravity_system,
                 player_control_system,
+                world_gravity_for_planets_system,
                 camera_system,
             )
                 .chain(),
@@ -129,21 +146,21 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let _rng = rand::thread_rng();
-    commands.spawn((Camera2d, Campos(10.0), CameraMode(0)));
+    commands.spawn((Camera2d, Campos(0.3), CameraMode(0)));
 
-    let x = 1380.0;
+    let x = 138.0;
     let y = 0.0;
 
     let player_bundle = PlayerBundle {
-        mesh: Mesh2d(meshes.add(Rectangle::new(5.0, 20.0))),
+        mesh: Mesh2d(meshes.add(Rectangle::new(0.4, 1.2))),
         material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
         transform: Transform::from_xyz(x, y, 0.1),
         rigid_body: RigidBody::Dynamic,
-        collider: Collider::cuboid(2.5, 10.0),
+        collider: Collider::cuboid(0.2, 0.6),
         velocity: Velocity::linear(Vec2::new(0.0, 0.0)),
         gravity_scale: GravityScale(0.0),
         mass: AdditionalMassProperties::Mass(5.0),
-        friction: Friction::coefficient(0.6),
+        friction: Friction::coefficient(0.5),
         restitution: Restitution::coefficient(0.0),
         external_force: ExternalForce {
             force: Vec2::new(0.0, 0.0),
@@ -218,11 +235,12 @@ fn world_spawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let radius = 128.0;
+    let radius = 32.0;
     let pos_x = 100.0;
     let pos_y = 100.0;
     let pos_z = 0.0;
-    let density = 274_000_000_0.0;
+    let density = 3.8e7;
+    let zone = 10.0;
 
     spawn_planet(
         (&mut commands, &mut meshes, &mut materials),
@@ -231,11 +249,30 @@ fn world_spawn(
         density,
         Vec2::new(0.0, 0.0),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
+        zone,
     );
+
+    let radius = 8.0;
+    let pos_x = 460.0;
+    let pos_y = 100.0;
+    let pos_z = 0.0;
+    let density = 3.43e7;
+    let zone = 5.0;
+    for i in 0..2 {
+        spawn_planet(
+            (&mut commands, &mut meshes, &mut materials),
+            radius,
+            (pos_x + 10.0 * (i as f32), pos_y, pos_z),
+            density,
+            Vec2::new(0.0, 45.0 + 20.0 * (i as f32)),
+            Color::srgba(0.5, 0.5, 0.5, 1.0),
+            zone,
+        );
+    }
 }
 
 fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
-    let volume = 4.0 / 3.0 * PI * radius.powf(3.0);
+    let volume = 4.0 / 3.0 * PI * (radius).powf(3.0);
     let mass = density * volume;
     (mass, G * mass, volume)
 }
@@ -251,9 +288,9 @@ fn spawn_planet(
     density: f32,
     speed: Vec2,
     color: Color,
+    zoner: f32,
 ) {
     let (mass, planet_pre_gravity, _volume) = planet_prepare(density, radius);
-
     let compound = vec![(Vec2::new(0.0, 0.0), 0.0_f32, Collider::ball(radius))];
 
     let planet_bundle = PlanetBundle {
@@ -264,12 +301,13 @@ fn spawn_planet(
         collider: Collider::compound(compound),
         velocity: Velocity {
             linvel: speed,
-            angvel: 0.2,
+            angvel: 0.01,
         },
+        radius: PlanetRadius(radius),
         //planet_volume: PlanetVolume(volume),
         //  planet_density: PlanetDensity(density),
         planet_pre_gravity: PlanetPreGravity(planet_pre_gravity),
-        friction: Friction::coefficient(0.6),
+        friction: Friction::coefficient(0.5),
         restitution: Restitution::coefficient(0.0),
         external_force: ExternalForce {
             force: Vec2::new(0.0, 0.0),
@@ -277,11 +315,18 @@ fn spawn_planet(
         },
         gravity_scale: GravityScale(0.0),
         mass: AdditionalMassProperties::Mass(mass),
+        zone: PlanetExtraGravZone(zoner),
         planet: Planet,
         active_events: ActiveEvents::COLLISION_EVENTS,
     };
 
-    ext.0.spawn(planet_bundle);
+    ext.0.spawn(planet_bundle).with_children(|parent| {
+        parent.spawn((
+            Mesh2d(ext.1.add(Circle::new(zoner * radius))),
+            MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 0.1))),
+            Transform::from_xyz(0.0, 0.0, pos.2 - 4.0),
+        ));
+    });
 }
 
 fn reset_forces_system(
@@ -297,7 +342,6 @@ fn reset_forces_system(
         force.torque = 0.0;
     }
 }
-
 fn world_gravity_for_planets_system(
     mut planet_query: Query<
         (
@@ -305,27 +349,35 @@ fn world_gravity_for_planets_system(
             &mut ExternalForce,
             &Transform,
             &AdditionalMassProperties,
+            &PlanetRadius,
+            &PlanetExtraGravZone,
         ),
         With<Planet>,
     >,
 ) {
-    let planets: Vec<(Vec2, f32)> = planet_query
+    let planets: Vec<(Vec2, f32, f32, f32)> = planet_query
         .iter()
-        .map(|(_, _, transform, mass)| {
+        .map(|(_pre_gravity, _, transform, mass, radius, zone)| {
             let mass = match mass {
                 AdditionalMassProperties::Mass(m) => *m,
                 _ => 0.0,
             };
-            (transform.translation.truncate(), mass)
+            (transform.translation.truncate(), mass, radius.0, zone.0)
         })
         .collect();
 
-    for (planet_pre_gravity_1, mut external_force_planet_1, transform_planet_1, _mass) in
-        planet_query.iter_mut()
+    for (
+        planet_pre_gravity_1,
+        mut external_force_planet_1,
+        transform_planet_1,
+        _mass,
+        radius_1,
+        zone_1,
+    ) in planet_query.iter_mut()
     {
         let mut full_ext_planets_force = (0.0, 0.0);
 
-        for (transform_planet_2, get_mass_2) in &planets {
+        for (transform_planet_2, get_mass_2, radius_2, zone_2) in &planets {
             let dx = transform_planet_1.translation.x - transform_planet_2.x;
             let dy = transform_planet_1.translation.y - transform_planet_2.y;
 
@@ -334,9 +386,23 @@ fn world_gravity_for_planets_system(
             if range < 0.0001 {
                 continue;
             }
+            let gravity_x: f32;
+            let gravity_y: f32;
+            
+            if range > *radius_2 * *zone_2 + zone_1.0 * radius_1.0 {
+                 gravity_x = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
+                    * (dx / range)
+                    * 32.0;
+                 gravity_y = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
+                    * (dy / range)
+                    * 32.0;
+            } else {
+                 gravity_x = -9.8 * dx * get_mass_2 / range.powf(2.0);
+                 gravity_y = -9.8 * dy * get_mass_2 / range.powf(2.0);
+            }
 
-            full_ext_planets_force.0 += planet_pre_gravity_1.0 / range.powf(3.0) * dx * get_mass_2;
-            full_ext_planets_force.1 += planet_pre_gravity_1.0 / range.powf(3.0) * dy * get_mass_2;
+            full_ext_planets_force.0 += gravity_x;
+            full_ext_planets_force.1 += gravity_y;
         }
 
         external_force_planet_1.force.x = -full_ext_planets_force.0;
@@ -350,7 +416,8 @@ fn player_gravity_system(
             &PlanetPreGravity,
             &mut ExternalForce,
             &Transform,
-            &AdditionalMassProperties,
+            &PlanetRadius,
+            &PlanetExtraGravZone,
         ),
         With<Planet>,
     >,
@@ -366,21 +433,19 @@ fn player_gravity_system(
         (With<Rec>, Without<Planet>),
     >,
 ) {
-    for (mut transform, mut external_force, mut velocity, mass, fly, collision) in
+    for (mut transform, mut external_force, mut velocity, mass, fly, _collision) in
         player_query.iter_mut()
     {
         let get_mass = match *mass {
             AdditionalMassProperties::Mass(m) => m,
             _ => 0.0,
         };
-
         let mut full_ext_forse = (0.0, 0.0);
         let mut min_dx = 0.0;
         let mut min_dy = 0.0;
-        let mut max_grav = 0.0;
-        let mut range_m = 0.0;
+        let mut range_m = f32::INFINITY;
 
-        for (planet_pre_gravity, mut external_force_planet, transform_planet, _massiv) in
+        for (planet_pre_gravity, mut external_force_planet, transform_planet, radius, zone) in
             &mut planet_query
         {
             let dx = transform_planet.translation.x - transform.translation.x;
@@ -392,12 +457,23 @@ fn player_gravity_system(
                 continue;
             }
 
-            let gravity_x = planet_pre_gravity.0 / range.powf(3.0) * dx * get_mass;
-            let gravity_y = planet_pre_gravity.0 / range.powf(3.0) * dy * get_mass;
+            let mut gravity_x = 0.0;
+            let mut gravity_y = 0.0;
 
-            let grav_magnitude = (gravity_x * gravity_x + gravity_y * gravity_y).sqrt();
-            if grav_magnitude > max_grav {
-                max_grav = grav_magnitude;
+            if range > radius.0 * zone.0 {
+                gravity_x = planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0)
+                    * (dx / range)
+                    * 32.0;
+                gravity_y = planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0)
+                    * (dy / range)
+                    * 32.0;
+            }
+
+            if range <= radius.0 * zone.0 {
+                gravity_x = 9.8 * dx * get_mass / range.powf(1.0);
+                gravity_y = 9.8 * dy * get_mass / range.powf(1.0);
+            }
+            if range < range_m {
                 min_dx = dx;
                 min_dy = dy;
                 range_m = range;
@@ -406,15 +482,14 @@ fn player_gravity_system(
             full_ext_forse.0 += gravity_x;
             full_ext_forse.1 += gravity_y;
 
-            external_force_planet.force.x = -full_ext_forse.0;
-            external_force_planet.force.y = -full_ext_forse.1;
+            external_force_planet.force.x -= full_ext_forse.0;
+            external_force_planet.force.y -= full_ext_forse.1;
         }
 
         if !fly.0 {
-            if !collision.0 {
-                external_force.force.x += full_ext_forse.0;
-                external_force.force.y += full_ext_forse.1;
-            }
+            external_force.force.x += full_ext_forse.0;
+            external_force.force.y += full_ext_forse.1;
+
             if range_m > f32::EPSILON {
                 let direction = Vec2::new(min_dx, min_dy).normalize();
                 let angle = direction.y.atan2(direction.x);
@@ -422,10 +497,8 @@ fn player_gravity_system(
             }
             velocity.angvel = 0.0;
         } else {
-            if !collision.0 {
-                external_force.force.x += full_ext_forse.0;
-                external_force.force.y += full_ext_forse.1;
-            }
+            external_force.force.x += full_ext_forse.0;
+            external_force.force.y += full_ext_forse.1;
         }
     }
 }
@@ -448,7 +521,7 @@ fn player_control_system(
         player_query.iter_mut()
     {
         let mut full_ext_forse = (0.0, 0.0);
-        let mut full_velocity = (0.0, 0.0);
+        let full_velocity = (0.0, 0.0);
 
         if keys.just_pressed(KeyCode::KeyF) {
             fly.0 = !fly.0;
@@ -457,36 +530,36 @@ fn player_control_system(
         if !fly.0 {
             if is_collis.0 {
                 if keys.pressed(KeyCode::KeyD) {
-                    full_velocity.0 += (direction.0 - PI / 2.0).cos() * 1.0;
-                    full_velocity.1 += (direction.0 - PI / 2.0).sin() * 1.0;
+                    full_ext_forse.0 += (direction.0 - PI / 2.0).cos() * 64.0;
+                    full_ext_forse.1 += (direction.0 - PI / 2.0).sin() * 64.0;
                 }
 
                 if keys.pressed(KeyCode::KeyA) {
-                    full_velocity.0 += (direction.0 + PI / 2.0).cos() * 1.0;
-                    full_velocity.1 += (direction.0 + PI / 2.0).sin() * 1.0;
+                    full_ext_forse.0 += (direction.0 + PI / 2.0).cos() * 64.0;
+                    full_ext_forse.1 += (direction.0 + PI / 2.0).sin() * 64.0;
                 }
 
                 if keys.just_pressed(KeyCode::KeyW) {
-                    full_ext_forse.0 = direction.0.cos() * 600000.0;
-                    full_ext_forse.1 = direction.0.sin() * 600000.0;
+                    full_ext_forse.0 += direction.0.cos() * 64.0 * 10.0;
+                    full_ext_forse.1 += direction.0.sin() * 64.0 * 10.0;
                 }
             }
         } else {
             if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -= 20000.0;
+                external_force.torque -= 5.0;
             }
 
             if keys.pressed(KeyCode::KeyA) {
-                external_force.torque += 20000.0;
+                external_force.torque += 5.0;
             }
 
             if keys.pressed(KeyCode::KeyW) {
-                full_ext_forse.0 += direction.0.cos() * 60000.0;
-                full_ext_forse.1 += direction.0.sin() * 60000.0;
+                full_ext_forse.0 += direction.0.cos() * 5.0 * 64.0;
+                full_ext_forse.1 += direction.0.sin() * 5.0 * 64.0;
             }
             if keys.pressed(KeyCode::KeyS) {
-                full_ext_forse.0 -= direction.0.cos() * 60000.0;
-                full_ext_forse.1 -= direction.0.sin() * 60000.0;
+                full_ext_forse.0 -= direction.0.cos() * 5.0 * 64.0;
+                full_ext_forse.1 -= direction.0.sin() * 5.0 * 64.0;
             }
         }
 
