@@ -141,12 +141,11 @@ fn main() {
                 player_control_system,
                 world_gravity_for_planets_system,
                 star_gravity_system,
-                camera_system,
             )
                 .chain(),
         )
         .add_systems(Update, collision_handler)
-        //.add_systems(FixedUpdate)
+        .add_systems(PostUpdate, camera_system)
         .run();
 }
 
@@ -161,7 +160,6 @@ fn setup(
         Campos(0.3),
         CameraMode(0),
         Transform::from_xyz(20138.0 + STARRADIUS, 0.0, 0.1),
-        RigidBody::KinematicPositionBased,
     ));
 
     let x = 20138.0 + STARRADIUS;
@@ -597,8 +595,8 @@ fn player_gravity_system(
             full_ext_forse.0 += gravity_x;
             full_ext_forse.1 += gravity_y;
 
-            external_force_planet.force.x -= full_ext_forse.0;
-            external_force_planet.force.y -= full_ext_forse.1;
+            external_force_planet.force.x -= gravity_x;
+            external_force_planet.force.y -= gravity_y;
         }
 
         if !fly.0 {
