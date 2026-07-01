@@ -1,12 +1,14 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
+use bevy::window::WindowResolution;
 use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
-use bevy::window::WindowResolution;
 //use rand::Rng;
 
 static PI: f32 = std::f32::consts::PI;
 static G: f32 = 6.67e-11;
+
+//------Planets-------//
 
 #[derive(Component)]
 struct Planet;
@@ -26,8 +28,13 @@ struct PlanetRadius(f32);
 #[derive(Component)]
 struct PlanetExtraGravZone(f32);
 
+//------Player-------//
+
 #[derive(Component)]
 struct IsFly(bool);
+
+#[derive(Component)]
+struct PlayerCollis(bool);
 
 #[derive(Component)]
 struct Rec;
@@ -35,14 +42,21 @@ struct Rec;
 #[derive(Component)]
 struct Dir(f32);
 
+//------Cameras-------//
+
 #[derive(Component)]
 struct Campos(f32);
 
 #[derive(Component)]
 struct CameraMode(u32);
 
+//------Stars-------//
+
 #[derive(Component)]
-struct PlayerCollis(bool);
+struct Star;
+
+static STARRADIUS: f32 = 1280.0;
+static STARDANSITY: f32 = 3.8e10;
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -73,21 +87,39 @@ struct PlanetBundle {
     collider: Collider,
     velocity: Velocity,
     radius: PlanetRadius,
+    gravity_scale: GravityScale,
     // planet_volume: PlanetVolume,
     // planet_density: PlanetDensity,
     planet_pre_gravity: PlanetPreGravity,
     friction: Friction,
     restitution: Restitution,
     external_force: ExternalForce,
-    gravity_scale: GravityScale,
     mass: AdditionalMassProperties,
     zone: PlanetExtraGravZone,
     planet: Planet,
     active_events: ActiveEvents,
 }
 
+#[derive(Bundle)]
+struct TheMainStarBundle {
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    transform: Transform,
+    rigid_body: RigidBody,
+    collider: Collider,
+    radius: PlanetRadius,
+    mass: AdditionalMassProperties,
+    star_pre_gravity: PlanetPreGravity,
+    main_star: Star,
+}
+
 fn main() {
     App::new()
+        .insert_resource(TimestepMode::Interpolated {
+            dt: 1.0 / 60.0,
+            time_scale: 1.0,
+            substeps: 1,
+        })
         .add_plugins(DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 resolution: WindowResolution::new(1600.0, 1200.0),
@@ -108,12 +140,131 @@ fn main() {
                 player_gravity_system,
                 player_control_system,
                 world_gravity_for_planets_system,
+                star_gravity_system,
                 camera_system,
             )
                 .chain(),
         )
         .add_systems(Update, collision_handler)
+        //.add_systems(FixedUpdate)
         .run();
+}
+
+fn setup(
+    mut commands: Commands,
+    mut meshes: ResMut<Assets<Mesh>>,
+    mut materials: ResMut<Assets<ColorMaterial>>,
+) {
+    let _rng = rand::thread_rng();
+    commands.spawn((
+        Camera2d,
+        Campos(0.3),
+        CameraMode(0),
+        Transform::from_xyz(20138.0 + STARRADIUS, 0.0, 0.1),
+        RigidBody::KinematicPositionBased,
+    ));
+
+    let x = 20138.0 + STARRADIUS;
+    let y = 0.0;
+
+    let player_bundle = PlayerBundle {
+        mesh: Mesh2d(meshes.add(Rectangle::new(0.4, 1.2))),
+        material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
+        transform: Transform::from_xyz(x, y, 0.1),
+        rigid_body: RigidBody::Dynamic,
+        collider: Collider::cuboid(0.2, 0.6),
+        velocity: Velocity::linear(Vec2::new(0.0, 1022.3)),
+        gravity_scale: GravityScale(0.0),
+        mass: AdditionalMassProperties::Mass(5.0),
+        friction: Friction::coefficient(0.5),
+        restitution: Restitution::coefficient(0.0),
+        external_force: ExternalForce {
+            force: Vec2::new(0.0, 0.0),
+            torque: 0.0,
+        },
+        is_fly: IsFly(false),
+        dir: Dir(0.0),
+        rec: Rec,
+        active_events: ActiveEvents::COLLISION_EVENTS,
+        is_collis: PlayerCollis(false),
+    };
+
+    let x = 0.0;
+    let y = 0.0;
+
+    let mass = 4.0 / 3.0 * PI * STARRADIUS.powf(3.0) * STARDANSITY;
+    let pre_gravity = G * mass;
+
+    let main_star = TheMainStarBundle {
+        mesh: Mesh2d(meshes.add(Circle::new(STARRADIUS))),
+        material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
+        transform: Transform::from_xyz(x, y, 0.1),
+        rigid_body: RigidBody::Fixed,
+        collider: Collider::ball(STARRADIUS),
+        radius: PlanetRadius(STARRADIUS),
+        mass: AdditionalMassProperties::Mass(mass),
+        star_pre_gravity: PlanetPreGravity(pre_gravity),
+        main_star: Star,
+    };
+    commands.spawn(main_star);
+    commands.spawn(player_bundle);
+}
+
+fn star_gravity_system(
+    mut planet_query: Query<
+        (&mut ExternalForce, &AdditionalMassProperties, &Transform),
+        With<Planet>,
+    >,
+    mut player_query: Query<
+        (&mut ExternalForce, &AdditionalMassProperties, &Transform),
+        (With<Rec>, Without<Planet>, Without<Star>),
+    >,
+    mut star_query: Query<(&PlanetPreGravity, &Transform)>,
+) {
+    for (star_pre_gravity, star_transform) in &mut star_query {
+        for (mut planet_external_forse, planet_mass, planet_transform) in &mut planet_query {
+            let mass = match planet_mass {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+
+            let dx = star_transform.translation.x - planet_transform.translation.x;
+            let dy = star_transform.translation.y - planet_transform.translation.y;
+            let range = (dx * dx + dy * dy).sqrt();
+
+            if range < 1e-10 {
+                continue;
+            }
+
+            let force_magnitude = star_pre_gravity.0 * mass / (range * range);
+            let force_x = force_magnitude * (dx / range);
+            let force_y = force_magnitude * (dy / range);
+
+            planet_external_forse.force.x += force_x;
+            planet_external_forse.force.y += force_y;
+        }
+        for (mut player_external_force, player_mass, player_transform) in &mut player_query {
+            let mass = match player_mass {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+
+            let dx = star_transform.translation.x - player_transform.translation.x;
+            let dy = star_transform.translation.y - player_transform.translation.y;
+            let range = (dx * dx + dy * dy).sqrt();
+
+            if range < 1e-10 {
+                continue;
+            }
+
+            let force_magnitude = star_pre_gravity.0 * mass / (range * range);
+            let force_x = force_magnitude * (dx / range);
+            let force_y = force_magnitude * (dy / range);
+
+            player_external_force.force.x += force_x;
+            player_external_force.force.y += force_y;
+        }
+    }
 }
 
 fn collision_handler(
@@ -138,42 +289,6 @@ fn collision_handler(
             }
         }
     }
-}
-
-fn setup(
-    mut commands: Commands,
-    mut meshes: ResMut<Assets<Mesh>>,
-    mut materials: ResMut<Assets<ColorMaterial>>,
-) {
-    let _rng = rand::thread_rng();
-    commands.spawn((Camera2d, Campos(0.3), CameraMode(0)));
-
-    let x = 138.0;
-    let y = 0.0;
-
-    let player_bundle = PlayerBundle {
-        mesh: Mesh2d(meshes.add(Rectangle::new(0.4, 1.2))),
-        material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
-        transform: Transform::from_xyz(x, y, 0.1),
-        rigid_body: RigidBody::Dynamic,
-        collider: Collider::cuboid(0.2, 0.6),
-        velocity: Velocity::linear(Vec2::new(0.0, 0.0)),
-        gravity_scale: GravityScale(0.0),
-        mass: AdditionalMassProperties::Mass(5.0),
-        friction: Friction::coefficient(0.5),
-        restitution: Restitution::coefficient(0.0),
-        external_force: ExternalForce {
-            force: Vec2::new(0.0, 0.0),
-            torque: 0.0,
-        },
-        is_fly: IsFly(false),
-        dir: Dir(0.0),
-        rec: Rec,
-        active_events: ActiveEvents::COLLISION_EVENTS,
-        is_collis: PlayerCollis(false),
-    };
-
-    commands.spawn(player_bundle);
 }
 
 fn camera_system(
@@ -236,8 +351,8 @@ fn world_spawn(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let radius = 32.0;
-    let pos_x = 100.0;
-    let pos_y = 100.0;
+    let pos_x = 20138.0 + STARRADIUS;
+    let pos_y = 0.0;
     let pos_z = 0.0;
     let density = 3.8e7;
     let zone = 10.0;
@@ -247,16 +362,16 @@ fn world_spawn(
         radius,
         (pos_x, pos_y, pos_z),
         density,
-        Vec2::new(0.0, 0.0),
+        Vec2::new(0.0, 1022.3),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
         zone,
     );
 
     let radius = 8.0;
-    let pos_x = 460.0;
+    let pos_x = 1000.0 + STARRADIUS;
     let pos_y = 100.0;
     let pos_z = 0.0;
-    let density = 3.43e7;
+    let density = 3.8e7;
     let zone = 5.0;
     for i in 0..2 {
         spawn_planet(
@@ -388,17 +503,17 @@ fn world_gravity_for_planets_system(
             }
             let gravity_x: f32;
             let gravity_y: f32;
-            
+
             if range > *radius_2 * *zone_2 + zone_1.0 * radius_1.0 {
-                 gravity_x = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
+                gravity_x = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
                     * (dx / range)
                     * 32.0;
-                 gravity_y = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
+                gravity_y = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
                     * (dy / range)
                     * 32.0;
             } else {
-                 gravity_x = -9.8 * dx * get_mass_2 / range.powf(2.0);
-                 gravity_y = -9.8 * dy * get_mass_2 / range.powf(2.0);
+                gravity_x = -9.8 * dx * get_mass_2 / range.powf(2.0);
+                gravity_y = -9.8 * dy * get_mass_2 / range.powf(2.0);
             }
 
             full_ext_planets_force.0 += gravity_x;
