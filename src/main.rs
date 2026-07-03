@@ -216,7 +216,7 @@ fn setup(
             Camera2d,
             Campos(0.3),
             CameraMode(0),
-            Transform::from_xyz(24500.0 * MORESIZE + STARRADIUS, 0.0, 0.1),
+            Transform::from_xyz(0.0, 0.0, 0.1),
         ));
     });
 }
@@ -324,23 +324,20 @@ fn camera_system(
     for (mut transform, cam_pos, mut ortho, mode) in &mut camera_query {
         for (_vel, transform_p, _direction, _fly) in &player_query {
             if mode.0 == 0 {
-                transform.translation = transform_p.translation;
-
-                transform.rotation = Quat::IDENTITY;
+                let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
+                transform.rotation = transform
+                    .rotation
+                    .slerp(Quat::from_rotation_z(-angle + PI / 2.0), 1.0);
             }
             if mode.0 == 1 {
-                transform.translation = transform_p.translation;
-
-                let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
-
-                transform.rotation = Quat::from_rotation_z(angle - PI / 2.0);
+                transform.rotation = transform
+                    .rotation
+                    .slerp(Quat::from_rotation_z(-PI / 2.0), 0.1);
             }
             if mode.0 == 2 {
-                transform.translation = transform_p.translation;
-
-                let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
-
-                transform.rotation = Quat::from_rotation_z(angle + PI / 2.0);
+                transform.rotation = transform
+                    .rotation
+                    .slerp(Quat::from_rotation_z(PI / 2.0), 0.1);
             }
 
             ortho.scale = cam_pos.0;
@@ -684,7 +681,7 @@ fn player_control_system(
             }
         } else {
             if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -= 10.0 * MORESIZE * MORESIZE;
+                external_force.torque -= 10.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyA) {
