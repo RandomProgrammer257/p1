@@ -3,8 +3,10 @@ use bevy::prelude::*;
 use bevy::window::WindowResolution;
 use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
+
 //use rand::Rng;
 
+static MORESIZE: f32 = 10.0;
 static PI: f32 = std::f32::consts::PI;
 static G: f32 = 6.67e-11;
 
@@ -55,7 +57,7 @@ struct CameraMode(u32);
 #[derive(Component)]
 struct Star;
 
-static STARRADIUS: f32 = 1280.0;
+static STARRADIUS: f32 = 1280.0 * MORESIZE;
 static STARDANSITY: f32 = 3.8e10;
 
 #[derive(Bundle)]
@@ -125,11 +127,12 @@ fn main() {
                 resolution: WindowResolution::new(1600.0, 1200.0),
                 title: "Orbital fox".to_string(),
                 position: WindowPosition::At(IVec2::new(0, 0)),
+                present_mode: bevy::window::PresentMode::Fifo,
                 ..default()
             }),
             ..default()
         }))
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(64.0))
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(1.0 * MORESIZE))
         .add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Startup, world_spawn)
@@ -137,15 +140,24 @@ fn main() {
             Update,
             (
                 reset_forces_system,
-                player_gravity_system,
+                collision_handler,
                 player_control_system,
-                world_gravity_for_planets_system,
-                star_gravity_system,
             )
                 .chain(),
         )
-        .add_systems(Update, collision_handler)
-        .add_systems(PostUpdate, camera_system)
+        .add_systems(
+            Update,
+            (
+                player_gravity_system,
+                world_gravity_for_planets_system,
+                star_gravity_system,
+            )
+                .after(reset_forces_system),
+        )
+        .add_systems(
+            PostUpdate,
+            camera_system.after(TransformSystem::TransformPropagate),
+        )
         .run();
 }
 
@@ -155,25 +167,19 @@ fn setup(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let _rng = rand::thread_rng();
-    commands.spawn((
-        Camera2d,
-        Campos(0.3),
-        CameraMode(0),
-        Transform::from_xyz(20138.0 + STARRADIUS, 0.0, 0.1),
-    ));
 
-    let x = 20138.0 + STARRADIUS;
+    let x = 24500.0 * MORESIZE + STARRADIUS;
     let y = 0.0;
 
     let player_bundle = PlayerBundle {
-        mesh: Mesh2d(meshes.add(Rectangle::new(0.4, 1.2))),
+        mesh: Mesh2d(meshes.add(Rectangle::new(0.4 * MORESIZE, 1.2 * MORESIZE))),
         material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
         transform: Transform::from_xyz(x, y, 0.1),
         rigid_body: RigidBody::Dynamic,
-        collider: Collider::cuboid(0.2, 0.6),
-        velocity: Velocity::linear(Vec2::new(0.0, 1022.3)),
+        collider: Collider::cuboid(0.2 * MORESIZE, 0.6 * MORESIZE),
+        velocity: Velocity::linear(Vec2::new(0.0, 1022.3 * MORESIZE)),
         gravity_scale: GravityScale(0.0),
-        mass: AdditionalMassProperties::Mass(5.0),
+        mass: AdditionalMassProperties::Mass(5.0 * MORESIZE * MORESIZE * MORESIZE),
         friction: Friction::coefficient(0.5),
         restitution: Restitution::coefficient(0.0),
         external_force: ExternalForce {
@@ -205,7 +211,14 @@ fn setup(
         main_star: Star,
     };
     commands.spawn(main_star);
-    commands.spawn(player_bundle);
+    commands.spawn(player_bundle).with_children(|parent| {
+        parent.spawn((
+            Camera2d,
+            Campos(0.3),
+            CameraMode(0),
+            Transform::from_xyz(24500.0 * MORESIZE + STARRADIUS, 0.0, 0.1),
+        ));
+    });
 }
 
 fn star_gravity_system(
@@ -312,17 +325,21 @@ fn camera_system(
         for (_vel, transform_p, _direction, _fly) in &player_query {
             if mode.0 == 0 {
                 transform.translation = transform_p.translation;
+
+                transform.rotation = Quat::IDENTITY;
             }
             if mode.0 == 1 {
                 transform.translation = transform_p.translation;
 
                 let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
+
                 transform.rotation = Quat::from_rotation_z(angle - PI / 2.0);
             }
             if mode.0 == 2 {
                 transform.translation = transform_p.translation;
 
                 let angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
+
                 transform.rotation = Quat::from_rotation_z(angle + PI / 2.0);
             }
 
@@ -332,7 +349,7 @@ fn camera_system(
 
     for event in scroll_events.read() {
         for (_, mut cam_pos, _, _) in &mut camera_query {
-            cam_pos.0 += event.y * 10.0 * time.delta_secs();
+            cam_pos.0 += event.y * 100.0 * time.delta_secs();
         }
     }
 }
@@ -348,11 +365,11 @@ fn world_spawn(
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let radius = 32.0;
-    let pos_x = 20138.0 + STARRADIUS;
+    let radius = 32.0 * MORESIZE;
+    let pos_x = 24500.0 * MORESIZE + STARRADIUS;
     let pos_y = 0.0;
     let pos_z = 0.0;
-    let density = 3.8e7;
+    let density = 3.8e8;
     let zone = 10.0;
 
     spawn_planet(
@@ -360,24 +377,24 @@ fn world_spawn(
         radius,
         (pos_x, pos_y, pos_z),
         density,
-        Vec2::new(0.0, 1022.3),
+        Vec2::new(0.0, 1022.3 * MORESIZE),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
         zone,
     );
 
-    let radius = 8.0;
-    let pos_x = 1000.0 + STARRADIUS;
-    let pos_y = 100.0;
+    let radius = 8.0 * MORESIZE;
+    let pos_x = 25100.0 * MORESIZE + STARRADIUS;
+    let pos_y = 000.0;
     let pos_z = 0.0;
-    let density = 3.8e7;
+    let density = 3.8e8;
     let zone = 5.0;
-    for i in 0..2 {
+    for i in 0..1 {
         spawn_planet(
             (&mut commands, &mut meshes, &mut materials),
             radius,
             (pos_x + 10.0 * (i as f32), pos_y, pos_z),
             density,
-            Vec2::new(0.0, 45.0 + 20.0 * (i as f32)),
+            Vec2::new(0.0, 1150.0 * MORESIZE),
             Color::srgba(0.5, 0.5, 0.5, 1.0),
             zone,
         );
@@ -438,6 +455,16 @@ fn spawn_planet(
             Mesh2d(ext.1.add(Circle::new(zoner * radius))),
             MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 0.1))),
             Transform::from_xyz(0.0, 0.0, pos.2 - 4.0),
+        ));
+        parent.spawn((
+            Text2d::new("Игрок 1"),
+            TextFont {
+                font: default(),
+                font_size: 15.0,
+                font_smoothing: default(), // или FontSmoothing::AntiAliased
+            },
+            TextColor(Color::WHITE),
+            Transform::from_xyz(0.0, 50.0, 0.0),
         ));
     });
 }
@@ -510,16 +537,16 @@ fn world_gravity_for_planets_system(
                     * (dy / range)
                     * 32.0;
             } else {
-                gravity_x = -9.8 * dx * get_mass_2 / range.powf(2.0);
-                gravity_y = -9.8 * dy * get_mass_2 / range.powf(2.0);
+                gravity_x = -9.8 * MORESIZE * dx * get_mass_2 / range.powf(2.0);
+                gravity_y = -9.8 * MORESIZE * dy * get_mass_2 / range.powf(2.0);
             }
 
             full_ext_planets_force.0 += gravity_x;
             full_ext_planets_force.1 += gravity_y;
         }
 
-        external_force_planet_1.force.x = -full_ext_planets_force.0;
-        external_force_planet_1.force.y = -full_ext_planets_force.1;
+        external_force_planet_1.force.x -= full_ext_planets_force.0;
+        external_force_planet_1.force.y -= full_ext_planets_force.1;
     }
 }
 
@@ -583,8 +610,8 @@ fn player_gravity_system(
             }
 
             if range <= radius.0 * zone.0 {
-                gravity_x = 9.8 * dx * get_mass / range.powf(1.0);
-                gravity_y = 9.8 * dy * get_mass / range.powf(1.0);
+                gravity_x = 9.8 * MORESIZE * dx * get_mass / range.powf(1.0);
+                gravity_y = 9.8 * MORESIZE * dy * get_mass / range.powf(1.0);
             }
             if range < range_m {
                 min_dx = dx;
@@ -600,19 +627,17 @@ fn player_gravity_system(
         }
 
         if !fly.0 {
-            external_force.force.x += full_ext_forse.0;
-            external_force.force.y += full_ext_forse.1;
-
             if range_m > f32::EPSILON {
                 let direction = Vec2::new(min_dx, min_dy).normalize();
                 let angle = direction.y.atan2(direction.x);
-                transform.rotation = Quat::from_rotation_z(angle + PI);
+                transform.rotation = transform
+                    .rotation
+                    .slerp(Quat::from_rotation_z(angle + PI), 0.1);
             }
             velocity.angvel = 0.0;
-        } else {
-            external_force.force.x += full_ext_forse.0;
-            external_force.force.y += full_ext_forse.1;
         }
+        external_force.force.x += full_ext_forse.0;
+        external_force.force.y += full_ext_forse.1;
     }
 }
 
@@ -659,11 +684,11 @@ fn player_control_system(
             }
         } else {
             if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -= 5.0;
+                external_force.torque -= 10.0 * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyA) {
-                external_force.torque += 5.0;
+                external_force.torque += 10.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyW) {
@@ -681,7 +706,7 @@ fn player_control_system(
 
         velocity.linvel.x += full_velocity.0;
         velocity.linvel.y += full_velocity.1;
-        external_force.force.x += full_ext_forse.0;
-        external_force.force.y += full_ext_forse.1;
+        external_force.force.x += full_ext_forse.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
+        external_force.force.y += full_ext_forse.1 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
     }
 }
