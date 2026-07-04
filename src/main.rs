@@ -1,6 +1,7 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::window::WindowResolution;
+use bevy::text::TextLayoutInfo;
 use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
 
@@ -10,7 +11,7 @@ mod player_systems;
 use player_systems::{player_control_system, player_gravity_system};
 
 mod info_showing;
-use info_showing::{planet_frame_handler, planet_info_handler};
+use info_showing::{planet_frame_handler, planet_info_handler, planet_get_info_handler};
 
 pub const MORESIZE: f32 = 10.0;
 
@@ -31,6 +32,11 @@ pub struct PlanetRadius(pub f32);
 #[derive(Component)]
 pub struct PlanetExtraGravZone(pub f32);
 
+#[derive(Component)]
+pub struct PlanetDensity(pub f32);
+
+#[derive(Component)]
+pub struct PlanetVolume(pub f32);
 //------Player-------//
 
 #[derive(Component)]
@@ -108,8 +114,8 @@ struct PlanetBundle {
     velocity: Velocity,
     radius: PlanetRadius,
     gravity_scale: GravityScale,
-    // planet_volume: PlanetVolume,
-    // planet_density: PlanetDensity,
+    planet_volume: PlanetVolume,
+    planet_density: PlanetDensity,
     planet_pre_gravity: PlanetPreGravity,
     friction: Friction,
     restitution: Restitution,
@@ -151,7 +157,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(1.0 * MORESIZE))
-        .add_plugins(RapierDebugRenderPlugin::default())
+        //.add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Startup, world_spawn)
         .add_systems(
@@ -163,7 +169,7 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(Update, (planet_frame_handler, planet_info_handler).chain())
+        .add_systems(Update, (planet_frame_handler, planet_info_handler, planet_get_info_handler).chain())
         .add_systems(
             Update,
             (
@@ -187,7 +193,7 @@ fn setup(
 ) {
     let _rng = rand::thread_rng();
 
-    let x = 24500.0 * MORESIZE + STARRADIUS;
+    let x = 25100.0 * MORESIZE + STARRADIUS;
     let y = 0.0;
 
     let player_bundle = PlayerBundle {
@@ -196,7 +202,7 @@ fn setup(
         transform: Transform::from_xyz(x, y, 0.1),
         rigid_body: RigidBody::Dynamic,
         collider: Collider::cuboid(0.6 * MORESIZE, 0.2 * MORESIZE),
-        velocity: Velocity::linear(Vec2::new(0.0, 1022.3 * MORESIZE)),
+        velocity: Velocity::linear(Vec2::new(0.0, 1150.3 * MORESIZE)),
         gravity_scale: GravityScale(0.0),
         mass: AdditionalMassProperties::Mass(5.0 * MORESIZE * MORESIZE * MORESIZE),
         friction: Friction::coefficient(0.5),
@@ -324,7 +330,6 @@ fn collision_handler(
 
 fn camera_system(
     keys: Res<ButtonInput<KeyCode>>,
-    time: Res<Time>,
     mut scroll_events: EventReader<MouseWheel>,
     player_query: Query<(&Velocity, &Transform, &Dir, &IsFly), With<Rec>>,
     mut camera_query: Query<
@@ -367,7 +372,9 @@ fn camera_system(
 
     for event in scroll_events.read() {
         for (_, mut cam_pos, _, _, _) in &mut camera_query {
-            cam_pos.0 += event.y * 100.0 * time.delta_secs();
+            if cam_pos.0 + event.y * 1.5 > 0.0 {
+                cam_pos.0 += event.y * 1.5;
+            }
         }
     }
 }
@@ -438,7 +445,7 @@ fn spawn_planet(
     color: Color,
     zoner: f32,
 ) {
-    let (mass, planet_pre_gravity, _volume) = planet_prepare(density, radius);
+    let (mass, planet_pre_gravity, volume) = planet_prepare(density, radius);
     let compound = vec![(Vec2::new(0.0, 0.0), 0.0_f32, Collider::ball(radius))];
 
     let planet_bundle = PlanetBundle {
@@ -452,8 +459,8 @@ fn spawn_planet(
             angvel: 0.01,
         },
         radius: PlanetRadius(radius),
-        //planet_volume: PlanetVolume(volume),
-        //  planet_density: PlanetDensity(density),
+        planet_volume: PlanetVolume(volume),
+        planet_density: PlanetDensity(density),
         planet_pre_gravity: PlanetPreGravity(planet_pre_gravity),
         friction: Friction::coefficient(0.5),
         restitution: Restitution::coefficient(0.0),
@@ -486,7 +493,7 @@ fn spawn_planet(
             .with_children(|grandparent| {
                 grandparent.spawn((
                     Text2d::new(format!(
-                        "Planet core\nLol\nRadius: {} meters",
+                        "{}",
                         radius / 10.0
                     )),
                     TextFont {
@@ -514,46 +521,18 @@ fn spawn_planet(
                 PlanetInfoZone,
             ))
             .with_children(|grandparent| {
-                grandparent.spawn((
-                    Mesh2d(ext.1.add(Rectangle::new(2.5 * radius, 1.5))),
-                    MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 1.0))),
+                for i in 0..4{
+                        grandparent.spawn((
+                    Mesh2d(ext.1.add(Rectangle::new(2.2 * radius, 1.5))),
+                    MeshMaterial2d(ext.2.add(Color::srgba(0.0, 0.9, 1.0, 1.0))),
                     Transform {
-                        translation: Vec3::new(0.0, radius * 1.5, 5.1),
-                        rotation: Quat::from_rotation_z(0.0),
+                        translation: Vec3::new(radius * 1.1 * ((i as f32) * PI/2.0).cos(), radius * 1.1 * ((i as f32) * PI/2.0).sin(), 5.1),
+                        rotation: Quat::from_rotation_z((i as f32) * PI/2.0 + PI/2.0),
                         scale: Vec3::ONE,
                     },
-                    FrameComponent,
+                    FrameComponent, 
                 ));
-                grandparent.spawn((
-                    Mesh2d(ext.1.add(Rectangle::new(2.5 * radius, 1.5))),
-                    MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 1.0))),
-                    Transform {
-                        translation: Vec3::new(0.0, -radius * 1.5, 5.1),
-                        rotation: Quat::from_rotation_z(0.0),
-                        scale: Vec3::ONE,
-                    },
-                    FrameComponent,
-                ));
-                grandparent.spawn((
-                    Mesh2d(ext.1.add(Rectangle::new(2.5 * radius, 1.5))),
-                    MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 1.0))),
-                    Transform {
-                        translation: Vec3::new(radius * 1.5, 0.0, 5.1),
-                        rotation: Quat::from_rotation_z(PI / 2.0),
-                        scale: Vec3::ONE,
-                    },
-                    FrameComponent,
-                ));
-                grandparent.spawn((
-                    Mesh2d(ext.1.add(Rectangle::new(2.5 * radius, 1.5))),
-                    MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 1.0))),
-                    Transform {
-                        translation: Vec3::new(-radius * 1.5, 0.0, 5.1),
-                        rotation: Quat::from_rotation_z(PI / 2.0),
-                        scale: Vec3::ONE,
-                    },
-                    FrameComponent,
-                ));
+                }
             });
     });
 }
