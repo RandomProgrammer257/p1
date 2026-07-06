@@ -322,16 +322,14 @@ pub fn visibility_control_handler(
         for mut visibility in planet_info_query.iter_mut() {
             if *visibility == Visibility::Visible {
                 *visibility = Visibility::Hidden;
-            }
-            else if *visibility == Visibility::Hidden {
+            } else if *visibility == Visibility::Hidden {
                 *visibility = Visibility::Visible;
             }
         }
         for mut visibility in planet_frame_query.iter_mut() {
             if *visibility == Visibility::Visible {
                 *visibility = Visibility::Hidden;
-            }
-            else if *visibility == Visibility::Hidden {
+            } else if *visibility == Visibility::Hidden {
                 *visibility = Visibility::Visible;
             }
         }

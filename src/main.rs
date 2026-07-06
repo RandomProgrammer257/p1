@@ -15,6 +15,9 @@ use info_showing::{
     planet_frame_handler, planet_get_info_handler, planet_info_handler, visibility_control_handler,
 };
 
+mod mouse_handlers;
+use mouse_handlers::{MouseStates, mouse_position_handler};
+
 pub const MORESIZE: f32 = 10.0;
 
 pub static PI: f32 = std::f32::consts::PI;
@@ -164,6 +167,7 @@ fn main() {
             ..default()
         }))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(1.0 * MORESIZE))
+        .init_resource::<MouseStates>()
         //.add_plugins(RapierDebugRenderPlugin::default())
         .add_systems(Startup, setup)
         .add_systems(Startup, world_spawn)
@@ -196,6 +200,7 @@ fn main() {
             )
                 .after(reset_forces_system),
         )
+        .add_systems(Update, (mouse_position_handler).chain())
         .add_systems(
             Update,
             camera_system.after(TransformSystem::TransformPropagate),
