@@ -56,12 +56,10 @@ pub fn player_gravity_system(
             let mut gravity_y = 0.0;
 
             if range > radius.0 * zone.0 {
-                gravity_x = planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0)
-                    * (dx / range)
-                    * 32.0;
-                gravity_y = planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0)
-                    * (dy / range)
-                    * 32.0;
+                gravity_x =
+                    planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0) * (dx / range);
+                gravity_y =
+                    planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0) * (dy / range);
             }
 
             if range <= radius.0 * zone.0 {
@@ -121,38 +119,36 @@ pub fn player_control_system(
         if !fly.0 {
             if is_collis.0 {
                 if keys.pressed(KeyCode::KeyD) {
-                    full_ext_forse.0 += (direction.0 + PI / 2.0).cos() * 64.0;
-                    full_ext_forse.1 += (direction.0 + PI / 2.0).sin() * 64.0;
+                    full_ext_forse.0 += (direction.0 + PI / 2.0).cos() * 640.0;
+                    full_ext_forse.1 += (direction.0 + PI / 2.0).sin() * 640.0;
                 }
 
                 if keys.pressed(KeyCode::KeyA) {
-                    full_ext_forse.0 += (direction.0 - PI / 2.0).cos() * 64.0;
-                    full_ext_forse.1 += (direction.0 - PI / 2.0).sin() * 64.0;
+                    full_ext_forse.0 += (direction.0 - PI / 2.0).cos() * 640.0;
+                    full_ext_forse.1 += (direction.0 - PI / 2.0).sin() * 640.0;
                 }
 
                 if keys.just_pressed(KeyCode::KeyW) {
-                    full_ext_forse.0 -= (direction.0).cos() * 64.0 * 10.0;
-                    full_ext_forse.1 -= (direction.0).sin() * 64.0 * 10.0;
+                    full_ext_forse.0 -= (direction.0).cos() * 8000.0;
+                    full_ext_forse.1 -= (direction.0).sin() * 8000.0;
                 }
             }
         } else {
             if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -=
-                    10.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
+                external_force.torque -= 450.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyA) {
-                external_force.torque +=
-                    10.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
+                external_force.torque += 450.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyW) {
-                full_ext_forse.0 -= direction.0.cos() * 5.0 * 64.0;
-                full_ext_forse.1 -= direction.0.sin() * 5.0 * 64.0;
+                full_ext_forse.0 -= direction.0.cos() * 450.0;
+                full_ext_forse.1 -= direction.0.sin() * 450.0;
             }
             if keys.pressed(KeyCode::KeyS) {
-                full_ext_forse.0 += direction.0.cos() * 5.0 * 64.0;
-                full_ext_forse.1 += direction.0.sin() * 5.0 * 64.0;
+                full_ext_forse.0 += direction.0.cos() * 450.0;
+                full_ext_forse.1 += direction.0.sin() * 450.0;
             }
         }
 

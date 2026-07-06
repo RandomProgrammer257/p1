@@ -1,7 +1,7 @@
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
-use bevy::window::WindowResolution;
 use bevy::text::TextLayoutInfo;
+use bevy::window::WindowResolution;
 use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
 
@@ -11,7 +11,7 @@ mod player_systems;
 use player_systems::{player_control_system, player_gravity_system};
 
 mod info_showing;
-use info_showing::{planet_frame_handler, planet_info_handler, planet_get_info_handler};
+use info_showing::{planet_frame_handler, planet_get_info_handler, planet_info_handler};
 
 pub const MORESIZE: f32 = 10.0;
 
@@ -37,6 +37,10 @@ pub struct PlanetDensity(pub f32);
 
 #[derive(Component)]
 pub struct PlanetVolume(pub f32);
+
+#[derive(Component)]
+pub struct NearestObject(pub Option<Entity>);
+
 //------Player-------//
 
 #[derive(Component)]
@@ -81,8 +85,8 @@ pub struct PlanetInfoZone;
 #[derive(Component)]
 pub struct FrameComponent;
 
-static STARRADIUS: f32 = 1280.0 * MORESIZE;
-static STARDANSITY: f32 = 3.8e10;
+static STARRADIUS: f32 = 128.0 * MORESIZE;
+static STARDANSITY: f32 = 3.8e8;
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -124,6 +128,7 @@ struct PlanetBundle {
     zone: PlanetExtraGravZone,
     planet: Planet,
     active_events: ActiveEvents,
+    nearest_by_gravity_object: NearestObject,
 }
 
 #[derive(Bundle)]
@@ -169,7 +174,16 @@ fn main() {
             )
                 .chain(),
         )
-        .add_systems(Update, (planet_frame_handler, planet_info_handler, planet_get_info_handler).chain())
+        .add_systems(
+            Update,
+            (
+                get_nearest_gravity_obj_system,
+                planet_frame_handler,
+                planet_info_handler,
+                planet_get_info_handler,
+            )
+                .chain(),
+        )
         .add_systems(
             Update,
             (
@@ -180,7 +194,7 @@ fn main() {
                 .after(reset_forces_system),
         )
         .add_systems(
-            PostUpdate,
+            Update,
             camera_system.after(TransformSystem::TransformPropagate),
         )
         .run();
@@ -193,7 +207,7 @@ fn setup(
 ) {
     let _rng = rand::thread_rng();
 
-    let x = 25100.0 * MORESIZE + STARRADIUS;
+    let x = 40045.0 * MORESIZE + STARRADIUS;
     let y = 0.0;
 
     let player_bundle = PlayerBundle {
@@ -202,9 +216,9 @@ fn setup(
         transform: Transform::from_xyz(x, y, 0.1),
         rigid_body: RigidBody::Dynamic,
         collider: Collider::cuboid(0.6 * MORESIZE, 0.2 * MORESIZE),
-        velocity: Velocity::linear(Vec2::new(0.0, 1150.3 * MORESIZE)),
+        velocity: Velocity::linear(Vec2::new(0.0, 734.7 * MORESIZE)),
         gravity_scale: GravityScale(0.0),
-        mass: AdditionalMassProperties::Mass(5.0 * MORESIZE * MORESIZE * MORESIZE),
+        mass: AdditionalMassProperties::Mass(45.0 * MORESIZE * MORESIZE * MORESIZE),
         friction: Friction::coefficient(0.5),
         restitution: Restitution::coefficient(0.0),
         external_force: ExternalForce {
@@ -249,22 +263,28 @@ fn setup(
 
 fn star_gravity_system(
     mut planet_query: Query<
-        (&mut ExternalForce, &AdditionalMassProperties, &Transform),
+        (
+            &mut ExternalForce,
+            &PlanetPreGravity,
+            &Transform,
+            &PlanetExtraGravZone,
+        ),
         With<Planet>,
     >,
     mut player_query: Query<
         (&mut ExternalForce, &AdditionalMassProperties, &Transform),
         (With<Rec>, Without<Planet>, Without<Star>),
     >,
-    mut star_query: Query<(&PlanetPreGravity, &Transform)>,
+    mut star_query: Query<(&AdditionalMassProperties, &PlanetPreGravity, &Transform), With<Star>>,
 ) {
-    for (star_pre_gravity, star_transform) in &mut star_query {
-        for (mut planet_external_forse, planet_mass, planet_transform) in &mut planet_query {
-            let mass = match planet_mass {
+    for (star_mass, star_pre_gravity, star_transform) in &mut star_query {
+        for (mut planet_external_forse, planet_pre_gravity, planet_transform, zone) in
+            &mut planet_query
+        {
+            let mass = match star_mass {
                 AdditionalMassProperties::Mass(m) => *m,
                 _ => 0.0,
             };
-
             let dx = star_transform.translation.x - planet_transform.translation.x;
             let dy = star_transform.translation.y - planet_transform.translation.y;
             let range = (dx * dx + dy * dy).sqrt();
@@ -273,7 +293,7 @@ fn star_gravity_system(
                 continue;
             }
 
-            let force_magnitude = star_pre_gravity.0 * mass / (range * range);
+            let force_magnitude = planet_pre_gravity.0 * mass / (range / zone.0).powf(2.0);
             let force_x = force_magnitude * (dx / range);
             let force_y = force_magnitude * (dy / range);
 
@@ -391,7 +411,7 @@ fn world_spawn(
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
     let radius = 32.0 * MORESIZE;
-    let pos_x = 24500.0 * MORESIZE + STARRADIUS;
+    let pos_x = 40045.0 * MORESIZE + STARRADIUS;
     let pos_y = 0.0;
     let pos_z = 0.0;
     let density = 3.8e8;
@@ -402,24 +422,24 @@ fn world_spawn(
         radius,
         (pos_x, pos_y, pos_z),
         density,
-        Vec2::new(0.0, 1022.3 * MORESIZE),
+        Vec2::new(0.0, 734.7 * MORESIZE),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
         zone,
     );
 
     let radius = 8.0 * MORESIZE;
-    let pos_x = 25100.0 * MORESIZE + STARRADIUS;
+    let pos_x = 40445.0 * MORESIZE + STARRADIUS;
     let pos_y = 000.0;
     let pos_z = 0.0;
     let density = 3.8e8;
     let zone = 5.0;
-    for i in 0..1 {
+    for i in 0..3 {
         spawn_planet(
             (&mut commands, &mut meshes, &mut materials),
             radius,
             (pos_x + 10.0 * (i as f32), pos_y, pos_z),
             density,
-            Vec2::new(0.0, 1150.0 * MORESIZE),
+            Vec2::new(0.0, 334.7 * MORESIZE),
             Color::srgba(0.5, 0.5, 0.5, 1.0),
             zone,
         );
@@ -473,6 +493,7 @@ fn spawn_planet(
         zone: PlanetExtraGravZone(zoner),
         planet: Planet,
         active_events: ActiveEvents::COLLISION_EVENTS,
+        nearest_by_gravity_object: NearestObject(Some(Entity::PLACEHOLDER)),
     };
 
     ext.0.spawn(planet_bundle).with_children(|parent| {
@@ -492,10 +513,7 @@ fn spawn_planet(
             ))
             .with_children(|grandparent| {
                 grandparent.spawn((
-                    Text2d::new(format!(
-                        "{}",
-                        radius / 10.0
-                    )),
+                    Text2d::new(format!("{}", radius / 10.0)),
                     TextFont {
                         font: default(),
                         font_size: 30.0,
@@ -521,17 +539,21 @@ fn spawn_planet(
                 PlanetInfoZone,
             ))
             .with_children(|grandparent| {
-                for i in 0..4{
-                        grandparent.spawn((
-                    Mesh2d(ext.1.add(Rectangle::new(2.2 * radius, 1.5))),
-                    MeshMaterial2d(ext.2.add(Color::srgba(0.0, 0.9, 1.0, 1.0))),
-                    Transform {
-                        translation: Vec3::new(radius * 1.1 * ((i as f32) * PI/2.0).cos(), radius * 1.1 * ((i as f32) * PI/2.0).sin(), 5.1),
-                        rotation: Quat::from_rotation_z((i as f32) * PI/2.0 + PI/2.0),
-                        scale: Vec3::ONE,
-                    },
-                    FrameComponent, 
-                ));
+                for i in 0..4 {
+                    grandparent.spawn((
+                        Mesh2d(ext.1.add(Rectangle::new(2.2 * radius, 1.5))),
+                        MeshMaterial2d(ext.2.add(Color::srgba(0.0, 0.9, 1.0, 1.0))),
+                        Transform {
+                            translation: Vec3::new(
+                                radius * 1.1 * ((i as f32) * PI / 2.0).cos(),
+                                radius * 1.1 * ((i as f32) * PI / 2.0).sin(),
+                                5.1,
+                            ),
+                            rotation: Quat::from_rotation_z((i as f32) * PI / 2.0 + PI / 2.0),
+                            scale: Vec3::ONE,
+                        },
+                        FrameComponent,
+                    ));
                 }
             });
     });
@@ -598,12 +620,10 @@ fn world_gravity_for_planets_system(
             let gravity_y: f32;
 
             if range > *radius_2 * *zone_2 + zone_1.0 * radius_1.0 {
-                gravity_x = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
-                    * (dx / range)
-                    * 32.0;
-                gravity_y = planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0)
-                    * (dy / range)
-                    * 32.0;
+                gravity_x =
+                    planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0) * (dx / range);
+                gravity_y =
+                    planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0) * (dy / range);
             } else {
                 gravity_x = -9.8 * MORESIZE * dx * get_mass_2 / range.powf(2.0);
                 gravity_y = -9.8 * MORESIZE * dy * get_mass_2 / range.powf(2.0);
@@ -615,5 +635,126 @@ fn world_gravity_for_planets_system(
 
         external_force_planet_1.force.x -= full_ext_planets_force.0;
         external_force_planet_1.force.y -= full_ext_planets_force.1;
+    }
+}
+
+fn get_nearest_gravity_obj_system(
+    mut planet_query: Query<
+        (
+            Entity,
+            &Transform,
+            &AdditionalMassProperties,
+            &PlanetPreGravity,
+            &PlanetRadius,
+            &PlanetExtraGravZone,
+            &mut NearestObject,
+        ),
+        With<Planet>,
+    >,
+
+    star_query: Query<
+        (
+            Entity,
+            &Transform,
+            &AdditionalMassProperties,
+            &PlanetPreGravity,
+        ),
+        With<Star>,
+    >,
+) {
+    let planets: Vec<(Entity, Vec2, f32, f32, f32, f32)> = planet_query
+        .iter()
+        .map(|(entity, transform, mass, pre_gravity, radius, zone, _)| {
+            let mass = match mass {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+            (
+                entity,
+                transform.translation.truncate(),
+                mass,
+                pre_gravity.0,
+                radius.0,
+                zone.0,
+            )
+        })
+        .collect();
+
+    for (
+        entity_1,
+        transform_planet_1,
+        mass_1,
+        planet_pre_gravity_1,
+        radius_1,
+        zone_1,
+        mut nearest_by_gravity_object_1,
+    ) in planet_query.iter_mut()
+    {
+        let mass_1 = match mass_1 {
+            AdditionalMassProperties::Mass(m) => *m,
+            _ => 0.0,
+        };
+
+        let mut nearest_entity_half_gravity = 0.0;
+        for (entity_2, transform_planet_2, _mass_2, planet_pre_gravity_2, radius_2, zone_2) in
+            &planets
+        {
+            let dx = transform_planet_1.translation.x - transform_planet_2.x;
+            let dy = transform_planet_1.translation.y - transform_planet_2.y;
+
+            let range = (dx * dx + dy * dy).powf(0.5);
+
+            if range < 0.0001 || entity_1 == *entity_2 {
+                continue;
+            }
+
+            let half_gravity_x: f32;
+            let half_gravity_y: f32;
+
+            if range > *radius_2 * *zone_2 + zone_1.0 * radius_1.0 {
+                half_gravity_x =
+                    *planet_pre_gravity_2 * mass_1 / (range / zone_2).powf(2.0) * (dx / range);
+                half_gravity_y =
+                    *planet_pre_gravity_2 * mass_1 / (range / zone_2).powf(2.0) * (dy / range);
+            } else {
+                half_gravity_x = -9.8 * MORESIZE * dx / range.powf(2.0);
+                half_gravity_y = -9.8 * MORESIZE * dy / range.powf(2.0);
+            }
+
+            let half_gravity_vec = (half_gravity_x.powf(2.0) + half_gravity_y.powf(2.0)).sqrt();
+
+            if half_gravity_vec > nearest_entity_half_gravity {
+                nearest_by_gravity_object_1.0 = Some(*entity_2);
+                nearest_entity_half_gravity = half_gravity_vec;
+            }
+        }
+
+        for (entity_2, transform_planet_2, mass_2, _planet_pre_gravity_2) in star_query.iter() {
+            let mass_2 = match mass_2 {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+
+            let dx = transform_planet_1.translation.x - transform_planet_2.translation.x;
+            let dy = transform_planet_1.translation.y - transform_planet_2.translation.y;
+
+            let range = (dx * dx + dy * dy).powf(0.5);
+
+            if range < 0.0001 || entity_1 == entity_2 {
+                continue;
+            }
+
+            let half_gravity_x =
+                planet_pre_gravity_1.0 * mass_2 / (range / zone_1.0).powf(2.0) * (dx / range);
+            let half_gravity_y =
+                planet_pre_gravity_1.0 * mass_2 / (range / zone_1.0).powf(2.0) * (dy / range);
+
+            let half_gravity_vec = (half_gravity_x.powf(2.0) + half_gravity_y.powf(2.0)).sqrt();
+
+            if half_gravity_vec > nearest_entity_half_gravity {
+                nearest_by_gravity_object_1.0 = Some(entity_2);
+                nearest_entity_half_gravity = half_gravity_vec;
+            }
+        }
     }
 }
