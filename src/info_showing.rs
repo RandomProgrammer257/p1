@@ -1,8 +1,8 @@
 use crate::{
-    AdditionalMassProperties, Camera2d, CameraWorldAngle, Campos, Children, FrameComponent,
-    NearestObject, PI, Planet, PlanetDensity, PlanetExtraGravZone, PlanetInfo, PlanetInfoText,
-    PlanetInfoZone, PlanetPreGravity, PlanetRadius, PlanetVolume, Rec, Star, Text2d,
-    TextLayoutInfo, Transform, Velocity,
+    AdditionalMassProperties, Camera2d, CameraWorldAngle, Campos, Children, FrameComponent, G,
+    MORESIZE, NearestObject, PI, Planet, PlanetDensity, PlanetExtraGravZone, PlanetInfo,
+    PlanetInfoText, PlanetInfoZone, PlanetPreGravity, PlanetRadius, PlanetVolume, Rec, Star,
+    Text2d, TextLayoutInfo, Transform, Velocity, Visibility,
 };
 
 use bevy::prelude::*;
@@ -174,6 +174,7 @@ pub fn planet_get_info_handler(
             Option<&Velocity>,
             Option<&PlanetPreGravity>,
             Option<&PlanetExtraGravZone>,
+            Option<&AdditionalMassProperties>,
             Option<&Star>,
             Option<&Planet>,
         ),
@@ -206,11 +207,13 @@ pub fn planet_get_info_handler(
         };
         let mut object_gravity_param = 0.0;
 
+        let mut object_mass = 0.0;
+
         let mut master = "".to_string();
 
         if let Some(nearest_entity) = nearest_object.0 {
             // 👇 Пытаемся получить данные по этому ID
-            if let Ok((transform, velocity, gravity_param, _zone, star, planet)) =
+            if let Ok((transform, velocity, gravity_param, zone, mass, star, planet)) =
                 nearest_by_gravity_query.get(nearest_entity)
             {
                 if let Some(t) = transform {
@@ -219,8 +222,17 @@ pub fn planet_get_info_handler(
                 if let Some(v) = velocity {
                     object_velocity = *v;
                 }
-                if let Some(g) = gravity_param {
-                    object_gravity_param = g.0 * extra_grav_zone.0.powf(2.0);
+                if let Some(z) = zone
+                    && let Some(g) = gravity_param
+                {
+                    object_gravity_param = g.0 * z.0.powf(2.0);
+                }
+
+                if let Some(m) = mass {
+                    object_mass = match *m {
+                        AdditionalMassProperties::Mass(m) => m,
+                        _ => 0.0,
+                    };
                 }
 
                 if star.is_some() {
@@ -259,6 +271,9 @@ pub fn planet_get_info_handler(
 
                         let day_period = 2.0 * PI / planet_angvel;
 
+                        let recomendated_horizontal_velocity =
+                            ((G * planet_mass + object_gravity_param) / orbital_height).sqrt();
+
                         text.0 = (format!(
                             "
                             Orbital height: {:.3} m
@@ -268,28 +283,56 @@ pub fn planet_get_info_handler(
                             Design mass: {:.3} kg
                             Master: {}
                             Orbital speed: {:.3} m/s
+                            Recomendated speed: {:.3} m/s
                             Day lenght: {:.3} sec
                             Year length: {:.3} sec
                             Extra gravity zone size: {:.3} m
                             Gravity parameter: {:.3} m^3/c^2
                             Big half axis: {:.3} m
                             ",
-                            orbital_height / 10.0,
-                            planet_radius.0 / 10.0,
-                            planet_volume.0 / 1000.0,
+                            orbital_height / MORESIZE,
+                            planet_radius.0 / MORESIZE,
+                            planet_volume.0 / MORESIZE.powf(3.0),
                             planet_density.0,
                             planet_mass,
                             master,
-                            planet_linvel / 10.0,
+                            planet_linvel / MORESIZE,
+                            recomendated_horizontal_velocity / MORESIZE,
                             day_period,
                             year_period,
-                            extra_grav_zone.0 * planet_radius.0 / 10.0,
-                            gravity_param.0 / 1000.0,
-                            orbital_axis_a / 10.0
+                            extra_grav_zone.0 * planet_radius.0 / MORESIZE,
+                            gravity_param.0 / MORESIZE.powf(3.0),
+                            orbital_axis_a / MORESIZE
                         ))
                         .to_string();
                     }
                 }
+            }
+        }
+    }
+}
+
+pub fn visibility_control_handler(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut planet_info_query: Query<&mut Visibility, With<PlanetInfo>>,
+
+    mut planet_frame_query: Query<&mut Visibility, (With<PlanetInfoZone>, Without<PlanetInfo>)>,
+) {
+    if keys.just_pressed(KeyCode::KeyI) {
+        for mut visibility in planet_info_query.iter_mut() {
+            if *visibility == Visibility::Visible {
+                *visibility = Visibility::Hidden;
+            }
+            else if *visibility == Visibility::Hidden {
+                *visibility = Visibility::Visible;
+            }
+        }
+        for mut visibility in planet_frame_query.iter_mut() {
+            if *visibility == Visibility::Visible {
+                *visibility = Visibility::Hidden;
+            }
+            else if *visibility == Visibility::Hidden {
+                *visibility = Visibility::Visible;
             }
         }
     }

@@ -11,7 +11,9 @@ mod player_systems;
 use player_systems::{player_control_system, player_gravity_system};
 
 mod info_showing;
-use info_showing::{planet_frame_handler, planet_get_info_handler, planet_info_handler};
+use info_showing::{
+    planet_frame_handler, planet_get_info_handler, planet_info_handler, visibility_control_handler,
+};
 
 pub const MORESIZE: f32 = 10.0;
 
@@ -85,7 +87,7 @@ pub struct PlanetInfoZone;
 #[derive(Component)]
 pub struct FrameComponent;
 
-static STARRADIUS: f32 = 128.0 * MORESIZE;
+static STARRADIUS: f32 = 1.0 * MORESIZE;
 static STARDANSITY: f32 = 3.8e8;
 
 #[derive(Bundle)]
@@ -181,6 +183,7 @@ fn main() {
                 planet_frame_handler,
                 planet_info_handler,
                 planet_get_info_handler,
+                visibility_control_handler,
             )
                 .chain(),
         )
@@ -211,14 +214,14 @@ fn setup(
     let y = 0.0;
 
     let player_bundle = PlayerBundle {
-        mesh: Mesh2d(meshes.add(Rectangle::new(1.2 * MORESIZE, 0.4 * MORESIZE))),
+        mesh: Mesh2d(meshes.add(Rectangle::new(0.9 * MORESIZE, 0.65 * MORESIZE))),
         material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
         transform: Transform::from_xyz(x, y, 0.1),
         rigid_body: RigidBody::Dynamic,
         collider: Collider::cuboid(0.6 * MORESIZE, 0.2 * MORESIZE),
         velocity: Velocity::linear(Vec2::new(0.0, 734.7 * MORESIZE)),
         gravity_scale: GravityScale(0.0),
-        mass: AdditionalMassProperties::Mass(45.0 * MORESIZE * MORESIZE * MORESIZE),
+        mass: AdditionalMassProperties::Mass(10.0 * MORESIZE * MORESIZE * MORESIZE),
         friction: Friction::coefficient(0.5),
         restitution: Restitution::coefficient(0.0),
         external_force: ExternalForce {
@@ -428,18 +431,18 @@ fn world_spawn(
     );
 
     let radius = 8.0 * MORESIZE;
-    let pos_x = 40445.0 * MORESIZE + STARRADIUS;
+    let pos_x = 40745.0 * MORESIZE + STARRADIUS;
     let pos_y = 000.0;
     let pos_z = 0.0;
     let density = 3.8e8;
     let zone = 5.0;
-    for i in 0..3 {
+    for i in 0..20 {
         spawn_planet(
             (&mut commands, &mut meshes, &mut materials),
             radius,
-            (pos_x + 10.0 * (i as f32), pos_y, pos_z),
+            (pos_x + 1500.0 * (i as f32), pos_y, pos_z),
             density,
-            Vec2::new(0.0, 334.7 * MORESIZE),
+            Vec2::new(0.0, 754.7 * MORESIZE),
             Color::srgba(0.5, 0.5, 0.5, 1.0),
             zone,
         );
@@ -504,6 +507,7 @@ fn spawn_planet(
         ));
         parent
             .spawn((
+                Visibility::Visible,
                 Transform {
                     translation: Vec3::new(0.0, 0.0, 5.0),
                     rotation: Quat::from_rotation_z(PI / 2.0),
@@ -513,6 +517,7 @@ fn spawn_planet(
             ))
             .with_children(|grandparent| {
                 grandparent.spawn((
+                    Visibility::Inherited,
                     Text2d::new(format!("{}", radius / 10.0)),
                     TextFont {
                         font: default(),
@@ -531,6 +536,7 @@ fn spawn_planet(
 
         parent
             .spawn((
+                Visibility::Visible,
                 Transform {
                     translation: Vec3::new(0.0, 0.0, 0.1),
                     rotation: Quat::from_rotation_z(PI / 2.0),
@@ -541,6 +547,7 @@ fn spawn_planet(
             .with_children(|grandparent| {
                 for i in 0..4 {
                     grandparent.spawn((
+                        Visibility::Inherited,
                         Mesh2d(ext.1.add(Rectangle::new(2.2 * radius, 1.5))),
                         MeshMaterial2d(ext.2.add(Color::srgba(0.0, 0.9, 1.0, 1.0))),
                         Transform {
