@@ -1,10 +1,11 @@
 use crate::{
     AdditionalMassProperties, Camera2d, CameraWorldAngle, Campos, Children, FrameComponent, G,
-    MORESIZE, NearestObject, PI, Planet, PlanetDensity, PlanetExtraGravZone, PlanetInfo,
-    PlanetInfoText, PlanetInfoZone, PlanetPreGravity, PlanetRadius, PlanetVolume, Rec, Star,
-    Text2d, TextLayoutInfo, Transform, Velocity, Visibility,
+    MORESIZE, MouseStates, NearestObject, PI, Planet, PlanetDensity, PlanetExtraGravZone,
+    PlanetInfo, PlanetInfoText, PlanetInfoZone, PlanetPreGravity, PlanetRadius, PlanetVolume, Rec,
+    Star, Text2d, TextLayoutInfo, Transform, Velocity, Visibility,
 };
 
+use bevy::input::mouse::MouseButton;
 use bevy::prelude::*;
 
 //Обработка размеров и поворота информации
@@ -314,23 +315,54 @@ pub fn planet_get_info_handler(
 
 pub fn visibility_control_handler(
     keys: Res<ButtonInput<KeyCode>>,
+    mouse_input: Res<ButtonInput<MouseButton>>,
+    mouse_state: ResMut<MouseStates>,
+
     mut planet_info_query: Query<&mut Visibility, With<PlanetInfo>>,
 
     mut planet_frame_query: Query<&mut Visibility, (With<PlanetInfoZone>, Without<PlanetInfo>)>,
+
+    planet_query: Query<(&Transform, &PlanetRadius, &Children), With<Planet>>,
 ) {
     if keys.just_pressed(KeyCode::KeyI) {
-        for mut visibility in planet_info_query.iter_mut() {
+        for mut visibility in planet_frame_query.iter_mut() {
             if *visibility == Visibility::Visible {
+                for mut frame_vis in planet_info_query.iter_mut() {
+                    *frame_vis = Visibility::Hidden;
+                }
                 *visibility = Visibility::Hidden;
             } else if *visibility == Visibility::Hidden {
                 *visibility = Visibility::Visible;
             }
         }
-        for mut visibility in planet_frame_query.iter_mut() {
-            if *visibility == Visibility::Visible {
-                *visibility = Visibility::Hidden;
-            } else if *visibility == Visibility::Hidden {
-                *visibility = Visibility::Visible;
+    }
+
+    if mouse_input.just_pressed(MouseButton::Left) {
+        for (planet_transform, planet_radius, children) in planet_query.iter() {
+            let mut is_vis = false;
+
+            for &child_entity in children.iter() {
+                if let Ok(planet_frame_vis) = planet_frame_query.get_mut(child_entity) {
+                    if *planet_frame_vis == Visibility::Visible {
+                        is_vis = true;
+                    }
+                }
+            }
+
+            let range = ((planet_transform.translation.x - mouse_state.world_position.x).powf(2.0)
+                + (planet_transform.translation.y - mouse_state.world_position.y).powf(2.0))
+            .sqrt();
+
+            if range < planet_radius.0 {
+                for &child_entity in children.iter() {
+                    if let Ok(mut planet_info_vis) = planet_info_query.get_mut(child_entity) {
+                        if *planet_info_vis == Visibility::Visible {
+                            *planet_info_vis = Visibility::Hidden;
+                        } else if *planet_info_vis == Visibility::Hidden && is_vis {
+                            *planet_info_vis = Visibility::Visible;
+                        }
+                    }
+                }
             }
         }
     }

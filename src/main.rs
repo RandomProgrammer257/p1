@@ -16,7 +16,7 @@ use info_showing::{
 };
 
 mod mouse_handlers;
-use mouse_handlers::{MouseStates, mouse_position_handler};
+use mouse_handlers::{MouseStates, mouse_position_handler, mouse_spawn_hander};
 
 pub const MORESIZE: f32 = 10.0;
 
@@ -169,8 +169,8 @@ fn main() {
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(1.0 * MORESIZE))
         .init_resource::<MouseStates>()
         //.add_plugins(RapierDebugRenderPlugin::default())
-        .add_systems(Startup, setup)
-        .add_systems(Startup, world_spawn)
+        .add_systems(Startup, (setup, world_spawn, mouse_spawn_hander).chain())
+        .add_systems(Update, mouse_position_handler)
         .add_systems(
             Update,
             (
@@ -200,7 +200,6 @@ fn main() {
             )
                 .after(reset_forces_system),
         )
-        .add_systems(Update, (mouse_position_handler).chain())
         .add_systems(
             Update,
             camera_system.after(TransformSystem::TransformPropagate),
@@ -441,7 +440,7 @@ fn world_spawn(
     let pos_z = 0.0;
     let density = 3.8e8;
     let zone = 5.0;
-    for i in 0..20 {
+    for i in 0..1 {
         spawn_planet(
             (&mut commands, &mut meshes, &mut materials),
             radius,

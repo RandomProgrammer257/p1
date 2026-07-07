@@ -135,19 +135,17 @@ pub fn player_control_system(
                 }
 
                 if keys.just_pressed(KeyCode::KeyW) {
-                    full_ext_forse.0 -= (direction.0).cos() * get_mass * 10.0;
-                    full_ext_forse.1 -= (direction.0).sin() * get_mass * 10.0;
+                    full_ext_forse.0 -= (direction.0).cos() * get_mass * 5.0;
+                    full_ext_forse.1 -= (direction.0).sin() * get_mass * 5.0;
                 }
             }
         } else {
             if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -=
-                    get_mass * MORESIZE * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
+                external_force.torque -= get_mass * MORESIZE * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyA) {
-                external_force.torque +=
-                    get_mass * MORESIZE * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
+                external_force.torque += get_mass * MORESIZE * MORESIZE * MORESIZE;
             }
 
             if keys.pressed(KeyCode::KeyW) {
@@ -165,7 +163,7 @@ pub fn player_control_system(
 
         velocity.linvel.x += full_velocity.0;
         velocity.linvel.y += full_velocity.1;
-        external_force.force.x -= full_ext_forse.0 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
-        external_force.force.y -= full_ext_forse.1 * MORESIZE * MORESIZE * MORESIZE * MORESIZE;
+        external_force.force.x -= full_ext_forse.0 * MORESIZE * MORESIZE * MORESIZE;
+        external_force.force.y -= full_ext_forse.1 * MORESIZE * MORESIZE * MORESIZE;
     }
 }
