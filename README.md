@@ -6,7 +6,6 @@ The fox must explore these planets—traveling between orbits and gathering reso
 # What will be implemented here
 
 - Planetary cores
-- Blocks that allow changing planets
 - Ability to travel between planets
 - Ability to view planetary orbital data
 
@@ -15,4 +14,5 @@ The fox must explore these planets—traveling between orbits and gathering reso
 - Creation and activation of planetary cores
 - Full planetary destructibility
 - Ability to shift orbits via towing and other technologies
+- Blocks that allow changing planets
 - Other features and interesting elements
