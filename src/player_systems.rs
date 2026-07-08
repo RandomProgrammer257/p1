@@ -55,17 +55,24 @@ pub fn player_gravity_system(
             let mut gravity_x = 0.0;
             let mut gravity_y = 0.0;
 
-            if range > radius.0 * zone.0 {
-                gravity_x =
-                    planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0) * (dx / range);
-                gravity_y =
-                    planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0) * (dy / range);
+            let surface_distance = range - radius.0;
+            if surface_distance < 1.5 {
+                gravity_x = 0.0;
+                gravity_y = 0.0;
+            } else {
+                if range > radius.0 * zone.0 {
+                    gravity_x =
+                        planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0) * (dx / range);
+                    gravity_y =
+                        planet_pre_gravity.0 * get_mass / (range / zone.0).powf(2.0) * (dy / range);
+                }
+
+                if range <= radius.0 * zone.0 {
+                    gravity_x = 9.8 * MORESIZE * dx * get_mass / range.powf(1.0);
+                    gravity_y = 9.8 * MORESIZE * dy * get_mass / range.powf(1.0);
+                }
             }
 
-            if range <= radius.0 * zone.0 {
-                gravity_x = 9.8 * MORESIZE * dx * get_mass / range.powf(1.0);
-                gravity_y = 9.8 * MORESIZE * dy * get_mass / range.powf(1.0);
-            }
             if range < range_m {
                 min_dx = dx;
                 min_dy = dy;

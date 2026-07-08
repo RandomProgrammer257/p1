@@ -208,12 +208,9 @@ pub fn planet_get_info_handler(
         };
         let mut object_gravity_param = 0.0;
 
-        //let mut object_mass = 0.0;
-
         let mut master = "".to_string();
 
         if let Some(nearest_entity) = nearest_object.0 {
-            // 👇 Пытаемся получить данные по этому ID
             if let Ok((transform, velocity, gravity_param, zone, _mass, star, planet)) =
                 nearest_by_gravity_query.get(nearest_entity)
             {
@@ -223,23 +220,22 @@ pub fn planet_get_info_handler(
                 if let Some(v) = velocity {
                     object_velocity = *v;
                 }
-                if let Some(z) = zone
-                    && let Some(g) = gravity_param
-                {
-                    object_gravity_param = g.0 * z.0.powf(2.0);
-                }
-
-                // if let Some(m) = mass {
-                //     object_mass = match *m {
-                //         AdditionalMassProperties::Mass(m) => m,
-                //         _ => 0.0,
-                //     };
-                // }
-
                 if star.is_some() {
                     master = "star".to_string();
+
+                    if let Some(g) = gravity_param {
+                        object_gravity_param = g.0 * extra_grav_zone.0.powf(2.0);
+                        println!("Star {}", object_gravity_param);
+                    }
                 }
                 if planet.is_some() {
+                    if let Some(z) = zone
+                        && let Some(g) = gravity_param
+                    {
+                        object_gravity_param = g.0 * z.0.powf(2.0);
+                        println!("Planet {}", object_gravity_param);
+                    }
+
                     master = "planet".to_string();
                 }
             }
