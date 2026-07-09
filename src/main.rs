@@ -5,8 +5,6 @@ use bevy::window::WindowResolution;
 use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
 
-//use rand::Rng;
-
 mod player_systems;
 use player_systems::{player_control_system, player_gravity_system};
 
@@ -18,10 +16,8 @@ use info_showing::{
 mod mouse_handlers;
 use mouse_handlers::{MouseStates, mouse_position_handler, mouse_spawn_hander};
 
-// mod blocks;
-// use blocks::{
-//     attach_meteor_parts_system, blocks_gravity_system, blocks_setup, handle_collision_events,
-// };
+mod planets_by_player;
+use planets_by_player::planet_spawn_ivent_handler;
 
 pub const MORESIZE: f32 = 10.0;
 
@@ -95,7 +91,7 @@ pub struct PlanetInfoZone;
 #[derive(Component)]
 pub struct FrameComponent;
 
-static STARRADIUS: f32 = 1280.0 * MORESIZE;
+static STARRADIUS: f32 = 200.0 * MORESIZE;
 static STARDANSITY: f32 = 3.8e8;
 
 #[derive(Bundle)]
@@ -173,13 +169,6 @@ fn main() {
         }))
         .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(1.0 * MORESIZE))
         .init_resource::<MouseStates>()
-        //.add_systems(Startup, blocks_setup)
-        //.add_plugins(RapierDebugRenderPlugin::default())
-        //  .add_systems(Update, blocks_gravity_system)
-        // .add_systems(
-        //     Update,
-        //     (handle_collision_events, attach_meteor_parts_system).chain(),
-        // )
         .add_systems(Startup, (setup, world_spawn, mouse_spawn_hander).chain())
         .add_systems(Update, mouse_position_handler)
         .add_systems(
@@ -211,6 +200,7 @@ fn main() {
             )
                 .after(reset_forces_system),
         )
+        .add_systems(Update, planet_spawn_ivent_handler)
         .add_systems(
             Update,
             camera_system.after(TransformSystem::TransformPropagate),
@@ -234,7 +224,7 @@ fn setup(
         transform: Transform::from_xyz(x, y, 0.1),
         rigid_body: RigidBody::Dynamic,
         collider: Collider::cuboid(0.6 * MORESIZE, 0.2 * MORESIZE),
-        velocity: Velocity::linear(Vec2::new(0.0, 730.7 * MORESIZE)),
+        velocity: Velocity::linear(Vec2::new(0.0, 45.7 * MORESIZE)),
         gravity_scale: GravityScale(0.0),
         mass: AdditionalMassProperties::Mass(10.0 * MORESIZE * MORESIZE * MORESIZE),
         friction: Friction::coefficient(0.5),
@@ -432,7 +422,7 @@ fn world_spawn(
     let pos_x = 40045.0 * MORESIZE + STARRADIUS;
     let pos_y = 0.0;
     let pos_z = 0.0;
-    let density = 3.8e8;
+    let density = 4.0e8;
     let zone = 10.0;
 
     spawn_planet(
@@ -440,7 +430,7 @@ fn world_spawn(
         radius,
         (pos_x, pos_y, pos_z),
         density,
-        Vec2::new(0.0, 730.7 * MORESIZE),
+        Vec2::new(0.0, 45.7 * MORESIZE),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
         zone,
     );
@@ -457,7 +447,7 @@ fn world_spawn(
             radius,
             (pos_x + 1500.0 * (i as f32), pos_y, pos_z),
             density,
-            Vec2::new(0.0, 750.7 * MORESIZE),
+            Vec2::new(0.0, 65.7 * MORESIZE),
             Color::srgba(0.5, 0.5, 0.5, 1.0),
             zone,
         );
@@ -470,7 +460,7 @@ fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
     (mass, G * mass, volume)
 }
 
-fn spawn_planet(
+pub fn spawn_planet(
     ext: (
         &mut Commands,
         &mut ResMut<Assets<Mesh>>,

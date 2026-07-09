@@ -225,7 +225,6 @@ pub fn planet_get_info_handler(
 
                     if let Some(g) = gravity_param {
                         object_gravity_param = g.0 * extra_grav_zone.0.powf(2.0);
-                        println!("Star {}", object_gravity_param);
                     }
                 }
                 if planet.is_some() {
@@ -233,7 +232,6 @@ pub fn planet_get_info_handler(
                         && let Some(g) = gravity_param
                     {
                         object_gravity_param = g.0 * z.0.powf(2.0);
-                        println!("Planet {}", object_gravity_param);
                     }
 
                     master = "planet".to_string();

@@ -10,6 +10,7 @@ pub struct MouseStates {
     pub world_position: Vec2,
     pub is_in_window: bool,
     pub size: f32,
+    pub planet_spawn_mode: bool,
 }
 
 #[derive(Bundle)]

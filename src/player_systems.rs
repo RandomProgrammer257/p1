@@ -1,6 +1,6 @@
 use crate::{
-    AdditionalMassProperties, Dir, ExternalForce, IsFly, MORESIZE, PI, Planet, PlanetExtraGravZone,
-    PlanetPreGravity, PlanetRadius, PlayerCollis, Rec, Transform, Velocity,
+    AdditionalMassProperties, Dir, ExternalForce, IsFly, MORESIZE, MouseStates, PI, Planet,
+    PlanetExtraGravZone, PlanetPreGravity, PlanetRadius, PlayerCollis, Rec, Transform, Velocity,
 };
 
 use bevy::prelude::*;
@@ -100,6 +100,7 @@ pub fn player_gravity_system(
 }
 
 pub fn player_control_system(
+    mut mouse_state: ResMut<MouseStates>,
     keys: Res<ButtonInput<KeyCode>>,
     mut player_query: Query<
         (
@@ -162,6 +163,16 @@ pub fn player_control_system(
             if keys.pressed(KeyCode::KeyS) {
                 full_ext_forse.0 += direction.0.cos() * get_mass * 1.0;
                 full_ext_forse.1 += direction.0.sin() * get_mass * 1.0;
+            }
+        }
+
+        if keys.just_pressed(KeyCode::KeyP) {
+            if mouse_state.planet_spawn_mode {
+                mouse_state.planet_spawn_mode = false;
+                println!("{}", mouse_state.planet_spawn_mode);
+            } else {
+                mouse_state.planet_spawn_mode = true;
+                println!("{}", mouse_state.planet_spawn_mode);
             }
         }
 
