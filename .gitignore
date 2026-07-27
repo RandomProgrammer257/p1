@@ -11,3 +11,4 @@ incremental
 target/CACHEDIR.TAG
 target/.rustc_info.json
 target/.rustdoc_fingerprint.json
+target/debug/OrbitalFoxMechanics.pdb

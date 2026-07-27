@@ -1,0 +1,1 @@
+D:\projes\p1\target\debug\OrbitalFoxMechanics.exe: D:\projes\p1\src\info_showing.rs D:\projes\p1\src\main.rs D:\projes\p1\src\mouse_handlers.rs D:\projes\p1\src\planets_by_player.rs D:\projes\p1\src\player_systems.rs
