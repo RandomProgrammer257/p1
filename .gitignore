@@ -1,1 +1,13 @@
 src/blocks.rs
+doc
+.fingerprint
+build
+deps
+examples
+incremental
+.cargo-lock
+.cargo-build-lock
+.cargo-artifact-lock
+target/CACHEDIR.TAG
+target/.rustc_info.json
+target/.rustdoc_fingerprint.json
