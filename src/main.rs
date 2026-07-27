@@ -1,3 +1,8 @@
+//! Модуль основной логики игры Orbital Fox
+//!
+//! Этот модуль содержит основные компоненты, системы и логику симуляции
+//! гравитационного взаимодействия небесных тел и управления игроком.
+
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
 use bevy::text::TextLayoutInfo;
@@ -19,81 +24,106 @@ use mouse_handlers::{MouseStates, mouse_position_handler, mouse_spawn_hander};
 mod planets_by_player;
 use planets_by_player::planet_spawn_ivent_handler;
 
+/// Глобальный масштабный коэффициент для всех размеров в игре
 pub const MORESIZE: f32 = 10.0;
 
+/// Число Пи
 pub static PI: f32 = std::f32::consts::PI;
+/// Гравитационная постоянная
 pub static G: f32 = 6.67e-11;
 
 //------Planets-------//
 
+/// Компонент-маркер для планет
 #[derive(Component)]
 pub struct Planet;
 
+/// Гравитационный параметр планеты (G * mass)
 #[derive(Component)]
 pub struct PlanetPreGravity(pub f32);
 
+/// Радиус планеты в метрах
 #[derive(Component)]
 pub struct PlanetRadius(pub f32);
 
+/// Размер зоны гравитационного влияния (множитель радиуса)
 #[derive(Component)]
 pub struct PlanetExtraGravZone(pub f32);
 
+/// Плотность планеты (кг/м³)
 #[derive(Component)]
 pub struct PlanetDensity(pub f32);
 
+/// Объем планеты (м³)
 #[derive(Component)]
 pub struct PlanetVolume(pub f32);
 
+/// Ближайший объект по гравитационному воздействию
 #[derive(Component)]
 pub struct NearestObject(pub Option<Entity>);
 
 //------Player-------//
 
+/// Компонент-маркер: игрок в режиме полета
 #[derive(Component)]
 pub struct IsFly(pub bool);
 
+/// Компонент-маркер: игрок столкнулся с чем-то
 #[derive(Component)]
 pub struct PlayerCollis(pub bool);
 
+/// Компонент-маркер для игрока
 #[derive(Component)]
 pub struct Rec;
 
+/// Направление движения игрока (угол)
 #[derive(Component)]
 pub struct Dir(pub f32);
 
 //------Cameras-------//
 
+/// Масштаб камеры (zoom)
 #[derive(Component)]
 pub struct Campos(pub f32);
 
+/// Режим камеры: 0 - след за игроком, 1 - фиксированная, 2 - инвертированная
 #[derive(Component)]
 pub struct CameraMode(pub u32);
 
+/// Мировой угол поворота камеры
 #[derive(Component)]
 pub struct CameraWorldAngle(pub f32);
 
 //------Stars-------//
 
+/// Компонент-маркер для звезд
 #[derive(Component)]
 pub struct Star;
 
 //------Information----//
 
+/// Компонент-маркер для информационного блока планеты
 #[derive(Component)]
 pub struct PlanetInfo;
 
+/// Компонент-маркер для текста информации о планете
 #[derive(Component)]
 pub struct PlanetInfoText;
 
+/// Компонент-маркер для зоны информации о планете
 #[derive(Component)]
 pub struct PlanetInfoZone;
 
+/// Компонент-маркер для рамки планеты
 #[derive(Component)]
 pub struct FrameComponent;
 
+/// Радиус звезды по умолчанию
 static STARRADIUS: f32 = 200.0 * MORESIZE;
+/// Плотность звезды по умолчанию
 static STARDANSITY: f32 = 3.8e8;
 
+/// Bundle для создания игрока со всеми необходимыми компонентами
 #[derive(Bundle)]
 struct PlayerBundle {
     mesh: Mesh2d,
@@ -114,6 +144,7 @@ struct PlayerBundle {
     is_collis: PlayerCollis,
 }
 
+/// Bundle для создания планеты со всеми необходимыми компонентами
 #[derive(Bundle)]
 struct PlanetBundle {
     mesh: Mesh2d,
@@ -137,6 +168,7 @@ struct PlanetBundle {
     nearest_by_gravity_object: NearestObject,
 }
 
+/// Bundle для создания главной звезды
 #[derive(Bundle)]
 struct TheMainStarBundle {
     mesh: Mesh2d,
@@ -150,6 +182,9 @@ struct TheMainStarBundle {
     main_star: Star,
 }
 
+/// Главная функция запуска приложения
+///
+/// Настраивает все плагины, ресурсы и системы Bevy
 fn main() {
     App::new()
         .insert_resource(TimestepMode::Interpolated {
@@ -208,13 +243,14 @@ fn main() {
         .run();
 }
 
+/// Начальная настройка сцены
+///
+/// Создает игрока, звезду и камеру в начальных позициях
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let _rng = rand::thread_rng();
-
     let x = 40045.0 * MORESIZE + STARRADIUS;
     let y = 0.0;
 
@@ -269,6 +305,9 @@ fn setup(
     });
 }
 
+/// Система гравитации звезды
+///
+/// Вычисляет гравитационное воздействие звезды на все планеты и игрока
 fn star_gravity_system(
     mut planet_query: Query<
         (
@@ -332,6 +371,9 @@ fn star_gravity_system(
     }
 }
 
+/// Система обработки столкновений
+///
+/// Обновляет состояние `PlayerCollis` при начале и окончании столкновения
 fn collision_handler(
     mut events: EventReader<CollisionEvent>,
     mut player_query: Query<&mut PlayerCollis, With<Rec>>,
@@ -356,6 +398,9 @@ fn collision_handler(
     }
 }
 
+/// Система управления камерой
+///
+/// Обрабатывает смену режимов камеры, масштабирование и слежение за игроком
 fn camera_system(
     keys: Res<ButtonInput<KeyCode>>,
     mut scroll_events: EventReader<MouseWheel>,
@@ -407,12 +452,14 @@ fn camera_system(
     }
 }
 
+/// Смена режима камеры по нажатию клавиши V
 fn change_camera_mode(keys: &Res<ButtonInput<KeyCode>>, mode: &mut CameraMode) {
     if keys.just_pressed(KeyCode::KeyV) {
         mode.0 = (mode.0 + 1) % 3;
     }
 }
 
+/// Создание начальных планет в мире
 fn world_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
@@ -454,12 +501,43 @@ fn world_spawn(
     }
 }
 
+/// Вычисление параметров планеты
+///
+/// # Аргументы
+/// * `density` - плотность планеты
+/// * `radius` - радиус планеты
+///
+/// # Возвращает
+/// * `(mass, pre_gravity, volume)` - масса, гравитационный параметр и объем
 fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
     let volume = 4.0 / 3.0 * PI * (radius).powf(3.0);
     let mass = density * volume;
     (mass, G * mass, volume)
 }
 
+/// Создание планеты в мире
+///
+/// # Аргументы
+/// * `ext` - кортеж с `Commands`, `Assets<Mesh>` и `Assets<ColorMaterial>`
+/// * `radius` - радиус планеты
+/// * `pos` - позиция `(x, y, z)`
+/// * `density` - плотность планеты
+/// * `speed` - начальная скорость `Vec2`
+/// * `color` - цвет планеты
+/// * `zoner` - множитель зоны гравитации
+///
+/// # Пример
+/// ```
+/// spawn_planet(
+///     (&mut commands, &mut meshes, &mut materials),
+///     10.0,
+///     (0.0, 0.0, 0.0),
+///     3.8e8,
+///     Vec2::new(0.0, 0.0),
+///     Color::WHITE,
+///     5.0,
+/// );
+/// ```
 pub fn spawn_planet(
     ext: (
         &mut Commands,
@@ -571,6 +649,9 @@ pub fn spawn_planet(
     });
 }
 
+/// Сброс всех сил перед новым вычислением
+///
+/// Обнуляет внешние силы для игрока и всех планет
 fn reset_forces_system(
     mut player_query: Query<&mut ExternalForce, (With<Rec>, Without<Planet>)>,
     mut planet_query: Query<&mut ExternalForce, With<Planet>>,
@@ -584,6 +665,10 @@ fn reset_forces_system(
         force.torque = 0.0;
     }
 }
+
+/// Система гравитации между планетами
+///
+/// Вычисляет взаимное гравитационное влияние всех планет друг на друга
 fn world_gravity_for_planets_system(
     mut planet_query: Query<
         (
@@ -650,6 +735,10 @@ fn world_gravity_for_planets_system(
     }
 }
 
+/// Система поиска ближайшего по гравитации объекта
+///
+/// Для каждой планеты определяет объект (планету или звезду),
+/// который оказывает на нее наибольшее гравитационное влияние
 fn get_nearest_gravity_obj_system(
     mut planet_query: Query<
         (
