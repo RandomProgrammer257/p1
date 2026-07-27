@@ -1,206 +1,710 @@
+//! Модуль основной логики игры Orbital Fox
+//!
+//! Этот модуль содержит основные компоненты, системы и логику симуляции
+//! гравитационного взаимодействия небесных тел и управления игроком.
+
 use bevy::input::mouse::MouseWheel;
 use bevy::prelude::*;
+use bevy::text::TextLayoutInfo;
+use bevy::window::WindowResolution;
+use bevy_rapier2d::prelude::CollisionEvent;
 use bevy_rapier2d::prelude::*;
-use rand::Rng;
 
-static PI: f32 = std::f32::consts::PI;
-static G: f32 = 6.67 * 0.000_000_000_01;
+mod player_systems;
+use player_systems::{player_control_system, player_gravity_system};
 
+mod info_showing;
+use info_showing::{
+    planet_frame_handler, planet_get_info_handler, planet_info_handler, visibility_control_handler,
+};
+
+mod mouse_handlers;
+use mouse_handlers::{MouseStates, mouse_position_handler, mouse_spawn_hander};
+
+mod planets_by_player;
+use planets_by_player::planet_spawn_ivent_handler;
+
+/// Глобальный масштабный коэффициент для всех размеров в игре
+pub const MORESIZE: f32 = 10.0;
+
+/// Число Пи
+pub static PI: f32 = std::f32::consts::PI;
+/// Гравитационная постоянная
+pub static G: f32 = 6.67e-11;
+
+//------Planets-------//
+
+/// Компонент-маркер для планет
 #[derive(Component)]
-struct Planet;
+pub struct Planet;
 
+/// Гравитационный параметр планеты (G * mass)
 #[derive(Component)]
-struct PlanetId(i32);
+pub struct PlanetPreGravity(pub f32);
 
+/// Радиус планеты в метрах
 #[derive(Component)]
-struct PlanetPreGravity(f32);
+pub struct PlanetRadius(pub f32);
 
+/// Размер зоны гравитационного влияния (множитель радиуса)
 #[derive(Component)]
-struct PlanetDensity(f32);
+pub struct PlanetExtraGravZone(pub f32);
 
+/// Плотность планеты (кг/м³)
 #[derive(Component)]
-struct PlanetVolume(f32);
+pub struct PlanetDensity(pub f32);
 
+/// Объем планеты (м³)
 #[derive(Component)]
-struct IsFly(bool);
+pub struct PlanetVolume(pub f32);
 
+/// Ближайший объект по гравитационному воздействию
 #[derive(Component)]
-struct Rec;
+pub struct NearestObject(pub Option<Entity>);
 
+//------Player-------//
+
+/// Компонент-маркер: игрок в режиме полета
 #[derive(Component)]
-struct Dir(f32);
+pub struct IsFly(pub bool);
 
+/// Компонент-маркер: игрок столкнулся с чем-то
 #[derive(Component)]
-struct Campos(f32);
+pub struct PlayerCollis(pub bool);
 
+/// Компонент-маркер для игрока
+#[derive(Component)]
+pub struct Rec;
+
+/// Направление движения игрока (угол)
+#[derive(Component)]
+pub struct Dir(pub f32);
+
+//------Cameras-------//
+
+/// Масштаб камеры (zoom)
+#[derive(Component)]
+pub struct Campos(pub f32);
+
+/// Режим камеры: 0 - след за игроком, 1 - фиксированная, 2 - инвертированная
+#[derive(Component)]
+pub struct CameraMode(pub u32);
+
+/// Мировой угол поворота камеры
+#[derive(Component)]
+pub struct CameraWorldAngle(pub f32);
+
+//------Stars-------//
+
+/// Компонент-маркер для звезд
+#[derive(Component)]
+pub struct Star;
+
+//------Information----//
+
+/// Компонент-маркер для информационного блока планеты
+#[derive(Component)]
+pub struct PlanetInfo;
+
+/// Компонент-маркер для текста информации о планете
+#[derive(Component)]
+pub struct PlanetInfoText;
+
+/// Компонент-маркер для зоны информации о планете
+#[derive(Component)]
+pub struct PlanetInfoZone;
+
+/// Компонент-маркер для рамки планеты
+#[derive(Component)]
+pub struct FrameComponent;
+
+/// Радиус звезды по умолчанию
+static STARRADIUS: f32 = 200.0 * MORESIZE;
+/// Плотность звезды по умолчанию
+static STARDANSITY: f32 = 3.8e8;
+
+/// Bundle для создания игрока со всеми необходимыми компонентами
+#[derive(Bundle)]
+struct PlayerBundle {
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    transform: Transform,
+    rigid_body: RigidBody,
+    collider: Collider,
+    velocity: Velocity,
+    gravity_scale: GravityScale,
+    mass: AdditionalMassProperties,
+    friction: Friction,
+    restitution: Restitution,
+    external_force: ExternalForce,
+    is_fly: IsFly,
+    dir: Dir,
+    rec: Rec,
+    active_events: ActiveEvents,
+    is_collis: PlayerCollis,
+}
+
+/// Bundle для создания планеты со всеми необходимыми компонентами
+#[derive(Bundle)]
+struct PlanetBundle {
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    transform: Transform,
+    rigid_body: RigidBody,
+    collider: Collider,
+    velocity: Velocity,
+    radius: PlanetRadius,
+    gravity_scale: GravityScale,
+    planet_volume: PlanetVolume,
+    planet_density: PlanetDensity,
+    planet_pre_gravity: PlanetPreGravity,
+    friction: Friction,
+    restitution: Restitution,
+    external_force: ExternalForce,
+    mass: AdditionalMassProperties,
+    zone: PlanetExtraGravZone,
+    planet: Planet,
+    active_events: ActiveEvents,
+    nearest_by_gravity_object: NearestObject,
+}
+
+/// Bundle для создания главной звезды
+#[derive(Bundle)]
+struct TheMainStarBundle {
+    mesh: Mesh2d,
+    material: MeshMaterial2d<ColorMaterial>,
+    transform: Transform,
+    rigid_body: RigidBody,
+    collider: Collider,
+    radius: PlanetRadius,
+    mass: AdditionalMassProperties,
+    star_pre_gravity: PlanetPreGravity,
+    main_star: Star,
+}
+
+/// Главная функция запуска приложения
+///
+/// Настраивает все плагины, ресурсы и системы Bevy
 fn main() {
     App::new()
-        .add_plugins(DefaultPlugins)
-        .add_plugins(RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0))
-        .add_plugins(RapierDebugRenderPlugin::default())
-        .add_systems(Startup, setup)
-        .add_systems(Startup, world_spawn)
+        .insert_resource(TimestepMode::Interpolated {
+            dt: 1.0 / 60.0,
+            time_scale: 1.0,
+            substeps: 1,
+        })
+        .add_plugins(DefaultPlugins.set(WindowPlugin {
+            primary_window: Some(Window {
+                resolution: WindowResolution::new(1600.0, 1200.0),
+                title: "Orbital fox".to_string(),
+                position: WindowPosition::At(IVec2::new(0, 0)),
+                present_mode: bevy::window::PresentMode::Fifo,
+                ..default()
+            }),
+            ..default()
+        }))
+        .add_plugins(RapierPhysicsPlugin::<NoUserData>::default().with_length_unit(1.0 * MORESIZE))
+        .init_resource::<MouseStates>()
+        .add_systems(Startup, (setup, world_spawn, mouse_spawn_hander).chain())
+        .add_systems(Update, mouse_position_handler)
         .add_systems(
             Update,
-            (all_player_moving, world_gravity_for_planets).chain(),
+            (
+                reset_forces_system,
+                collision_handler,
+                player_control_system,
+            )
+                .chain(),
         )
-        .add_systems(Update, camera_system)
+        .add_systems(
+            Update,
+            (
+                get_nearest_gravity_obj_system,
+                planet_frame_handler,
+                planet_info_handler,
+                planet_get_info_handler,
+                visibility_control_handler,
+            )
+                .chain(),
+        )
+        .add_systems(
+            Update,
+            (
+                player_gravity_system,
+                world_gravity_for_planets_system,
+                star_gravity_system,
+            )
+                .after(reset_forces_system),
+        )
+        .add_systems(Update, planet_spawn_ivent_handler)
+        .add_systems(
+            Update,
+            camera_system.after(TransformSystem::TransformPropagate),
+        )
         .run();
 }
+
+/// Начальная настройка сцены
+///
+/// Создает игрока, звезду и камеру в начальных позициях
 fn setup(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let mut rng = rand::thread_rng();
-    commands.spawn((Camera2d, Campos(10.0)));
-
-    let x = 1380.0;
+    let x = 40045.0 * MORESIZE + STARRADIUS;
     let y = 0.0;
 
-    commands.spawn((
-        Mesh2d(meshes.add(Rectangle::new(5.0, 20.0))),
-        MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
-        Transform::from_xyz(x, y, 0.1),
-        RigidBody::Dynamic,
-        Collider::cuboid(2.5, 10.0),
-        Velocity::linear(Vec2::new(0.0, 0.0)),
-        GravityScale(0.0),
-        AdditionalMassProperties::Mass(5.0),
-        Restitution::coefficient(0.0),
-        Friction::coefficient(0.8),
-        ExternalForce {
-            force: Vec2::new(0.0, 0.0), // Сила в Ньютонах (вправо)
-            torque: 0.0,
-        },
-        IsFly(false),
-        Dir(0.0),
-        Rec,
-    ));
-}
-
-fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
-    let volume = 4.0 / 3.0 * PI * radius.powf(3.0);
-    let mass = density * volume;
-    (mass, G * mass, volume)
-}
-
-fn spawn_planet(
-    commands: &mut Commands,
-    meshes: &mut ResMut<Assets<Mesh>>,
-    materials: &mut ResMut<Assets<ColorMaterial>>,
-
-    radius: f32,
-    pos_x: f32,
-    pos_y: f32,
-    pos_z: f32,
-    density: f32,
-    speed: Vec2,
-    color: Color,
-    id: i32,
-) {
-    let mass = planet_prepare(density, radius).0;
-    let planet_pre_gravity = planet_prepare(density, radius).1;
-    let volume = planet_prepare(density, radius).2;
-
-    commands.spawn((
-        Mesh2d(meshes.add(Circle::new(radius))),
-        MeshMaterial2d(materials.add(color)),
-        Transform::from_xyz(pos_x, pos_y, pos_z),
-        RigidBody::Dynamic,
-        Collider::ball(radius),
-        Velocity {
-            linvel: speed, // Линейная скорость
-            angvel: 0.2,   // Угловая скорость (радиан/сек)
-        },
-        PlanetId(id),
-        PlanetVolume(volume),
-        PlanetDensity(density),
-        PlanetPreGravity(planet_pre_gravity),
-        ExternalForce {
+    let player_bundle = PlayerBundle {
+        mesh: Mesh2d(meshes.add(Rectangle::new(0.9 * MORESIZE, 0.65 * MORESIZE))),
+        material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
+        transform: Transform::from_xyz(x, y, 0.1),
+        rigid_body: RigidBody::Dynamic,
+        collider: Collider::cuboid(0.6 * MORESIZE, 0.2 * MORESIZE),
+        velocity: Velocity::linear(Vec2::new(0.0, 45.7 * MORESIZE)),
+        gravity_scale: GravityScale(0.0),
+        mass: AdditionalMassProperties::Mass(10.0 * MORESIZE * MORESIZE * MORESIZE),
+        friction: Friction::coefficient(0.5),
+        restitution: Restitution::coefficient(0.5),
+        external_force: ExternalForce {
             force: Vec2::new(0.0, 0.0),
             torque: 0.0,
         },
-        GravityScale(0.0),
-        AdditionalMassProperties::Mass(mass),
-        Planet,
-    ));
+        is_fly: IsFly(false),
+        dir: Dir(0.0),
+        rec: Rec,
+        active_events: ActiveEvents::COLLISION_EVENTS,
+        is_collis: PlayerCollis(false),
+    };
+
+    let x = 0.0;
+    let y = 0.0;
+
+    let mass = 4.0 / 3.0 * PI * STARRADIUS.powf(3.0) * STARDANSITY;
+    let pre_gravity = G * mass;
+
+    let main_star = TheMainStarBundle {
+        mesh: Mesh2d(meshes.add(Circle::new(STARRADIUS))),
+        material: MeshMaterial2d(materials.add(Color::srgba(0.69, 0.35, 0.17, 1.0))),
+        transform: Transform::from_xyz(x, y, 0.1),
+        rigid_body: RigidBody::Fixed,
+        collider: Collider::ball(STARRADIUS),
+        radius: PlanetRadius(STARRADIUS),
+        mass: AdditionalMassProperties::Mass(mass),
+        star_pre_gravity: PlanetPreGravity(pre_gravity),
+        main_star: Star,
+    };
+    commands.spawn(main_star);
+    commands.spawn(player_bundle).with_children(|parent| {
+        parent.spawn((
+            Camera2d,
+            Campos(0.3),
+            CameraMode(0),
+            CameraWorldAngle(0.0),
+            Transform::from_xyz(0.0, 0.0, 0.1),
+        ));
+    });
 }
 
+/// Система гравитации звезды
+///
+/// Вычисляет гравитационное воздействие звезды на все планеты и игрока
+fn star_gravity_system(
+    mut planet_query: Query<
+        (
+            &mut ExternalForce,
+            &PlanetPreGravity,
+            &Transform,
+            &PlanetExtraGravZone,
+        ),
+        With<Planet>,
+    >,
+    mut player_query: Query<
+        (&mut ExternalForce, &AdditionalMassProperties, &Transform),
+        (With<Rec>, Without<Planet>, Without<Star>),
+    >,
+    mut star_query: Query<(&AdditionalMassProperties, &PlanetPreGravity, &Transform), With<Star>>,
+) {
+    for (star_mass, star_pre_gravity, star_transform) in &mut star_query {
+        for (mut planet_external_forse, planet_pre_gravity, planet_transform, zone) in
+            &mut planet_query
+        {
+            let mass = match star_mass {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+            let dx = star_transform.translation.x - planet_transform.translation.x;
+            let dy = star_transform.translation.y - planet_transform.translation.y;
+            let range = (dx * dx + dy * dy).sqrt();
+
+            if range < 1e-10 {
+                continue;
+            }
+
+            let force_magnitude = planet_pre_gravity.0 * mass / (range / zone.0).powf(2.0);
+            let force_x = force_magnitude * (dx / range);
+            let force_y = force_magnitude * (dy / range);
+
+            planet_external_forse.force.x += force_x;
+            planet_external_forse.force.y += force_y;
+        }
+        for (mut player_external_force, player_mass, player_transform) in &mut player_query {
+            let mass = match player_mass {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+
+            let dx = star_transform.translation.x - player_transform.translation.x;
+            let dy = star_transform.translation.y - player_transform.translation.y;
+            let range = (dx * dx + dy * dy).sqrt();
+
+            if range < 1e-10 {
+                continue;
+            }
+
+            let force_magnitude = star_pre_gravity.0 * mass / (range * range);
+            let force_x = force_magnitude * (dx / range);
+            let force_y = force_magnitude * (dy / range);
+
+            player_external_force.force.x += force_x;
+            player_external_force.force.y += force_y;
+        }
+    }
+}
+
+/// Система обработки столкновений
+///
+/// Обновляет состояние `PlayerCollis` при начале и окончании столкновения
+fn collision_handler(
+    mut events: EventReader<CollisionEvent>,
+    mut player_query: Query<&mut PlayerCollis, With<Rec>>,
+) {
+    for event in events.read() {
+        match event {
+            CollisionEvent::Started(e1, _e2, _) => {
+                if player_query.contains(*e1)
+                    && let Ok(mut is_collis) = player_query.get_mut(*e1)
+                {
+                    is_collis.0 = true;
+                }
+            }
+            CollisionEvent::Stopped(e1, _e2, _) => {
+                if player_query.contains(*e1)
+                    && let Ok(mut is_collis) = player_query.get_mut(*e1)
+                {
+                    is_collis.0 = false;
+                }
+            }
+        }
+    }
+}
+
+/// Система управления камерой
+///
+/// Обрабатывает смену режимов камеры, масштабирование и слежение за игроком
+fn camera_system(
+    keys: Res<ButtonInput<KeyCode>>,
+    mut scroll_events: EventReader<MouseWheel>,
+    player_query: Query<(&Velocity, &Transform, &Dir, &IsFly), With<Rec>>,
+    mut camera_query: Query<
+        (
+            &mut Transform,
+            &mut Campos,
+            &mut OrthographicProjection,
+            &mut CameraMode,
+            &mut CameraWorldAngle,
+        ),
+        (With<Camera2d>, Without<Rec>),
+    >,
+) {
+    for (_, _, _, mut mode, _) in &mut camera_query {
+        change_camera_mode(&keys, &mut mode);
+    }
+
+    for (mut transform, cam_pos, mut ortho, mode, mut world_angle) in &mut camera_query {
+        for (_vel, transform_p, _direction, _fly) in &player_query {
+            let player_angle = transform_p.rotation.to_euler(EulerRot::XYZ).2;
+
+            if mode.0 == 0 {
+                transform.rotation = transform
+                    .rotation
+                    .slerp(Quat::from_rotation_z(-player_angle), 1.0);
+            }
+            if mode.0 == 1 {
+                transform.rotation = transform.rotation.slerp(Quat::from_rotation_z(0.0), 1.0);
+            }
+            if mode.0 == 2 {
+                transform.rotation = transform.rotation.slerp(Quat::from_rotation_z(PI), 1.0);
+            }
+
+            let camera_angle = transform.rotation.to_euler(EulerRot::XYZ).2;
+
+            world_angle.0 = camera_angle + player_angle;
+            ortho.scale = cam_pos.0;
+        }
+    }
+
+    for event in scroll_events.read() {
+        for (_, mut cam_pos, _, _, _) in &mut camera_query {
+            if cam_pos.0 + event.y * 1.5 > 0.0 {
+                cam_pos.0 += event.y * 1.5;
+            }
+        }
+    }
+}
+
+/// Смена режима камеры по нажатию клавиши V
+fn change_camera_mode(keys: &Res<ButtonInput<KeyCode>>, mode: &mut CameraMode) {
+    if keys.just_pressed(KeyCode::KeyV) {
+        mode.0 = (mode.0 + 1) % 3;
+    }
+}
+
+/// Создание начальных планет в мире
 fn world_spawn(
     mut commands: Commands,
     mut meshes: ResMut<Assets<Mesh>>,
     mut materials: ResMut<Assets<ColorMaterial>>,
 ) {
-    let radius = 1020.0;
-    let pos_x = 100.0;
-    let pos_y = 100.0;
+    let radius = 32.0 * MORESIZE;
+    let pos_x = 40045.0 * MORESIZE + STARRADIUS;
+    let pos_y = 0.0;
     let pos_z = 0.0;
-    let density = 274_000_000.0;
+    let density = 4.0e8;
+    let zone = 10.0;
 
     spawn_planet(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
+        (&mut commands, &mut meshes, &mut materials),
         radius,
-        pos_x,
-        pos_y,
-        pos_z,
+        (pos_x, pos_y, pos_z),
         density,
-        Vec2::new(0.0, 0.0),
+        Vec2::new(0.0, 45.7 * MORESIZE),
         Color::srgba(0.086, 0.259, 0.157, 1.0),
-        3,
+        zone,
     );
 
-    let radius = 400.0;
-    let pos_x = 5000.0;
-    let pos_y = 100.0;
+    let radius = 8.0 * MORESIZE;
+    let pos_x = 40745.0 * MORESIZE + STARRADIUS;
+    let pos_y = 000.0;
     let pos_z = 0.0;
-    let density = 280_000_000.0;
-
-    spawn_planet(
-        &mut commands,
-        &mut meshes,
-        &mut materials,
-        radius,
-        pos_x,
-        pos_y,
-        pos_z,
-        density,
-        Vec2::new(0.0, 200.0),
-        Color::from(bevy::color::palettes::basic::GRAY),
-        1,
-    );
+    let density = 3.8e8;
+    let zone = 5.0;
+    for i in 0..1 {
+        spawn_planet(
+            (&mut commands, &mut meshes, &mut materials),
+            radius,
+            (pos_x + 1500.0 * (i as f32), pos_y, pos_z),
+            density,
+            Vec2::new(0.0, 65.7 * MORESIZE),
+            Color::srgba(0.5, 0.5, 0.5, 1.0),
+            zone,
+        );
+    }
 }
 
-fn world_gravity_for_planets(
+/// Вычисление параметров планеты
+///
+/// # Аргументы
+/// * `density` - плотность планеты
+/// * `radius` - радиус планеты
+///
+/// # Возвращает
+/// * `(mass, pre_gravity, volume)` - масса, гравитационный параметр и объем
+fn planet_prepare(density: f32, radius: f32) -> (f32, f32, f32) {
+    let volume = 4.0 / 3.0 * PI * (radius).powf(3.0);
+    let mass = density * volume;
+    (mass, G * mass, volume)
+}
+
+/// Создание планеты в мире
+///
+/// # Аргументы
+/// * `ext` - кортеж с `Commands`, `Assets<Mesh>` и `Assets<ColorMaterial>`
+/// * `radius` - радиус планеты
+/// * `pos` - позиция `(x, y, z)`
+/// * `density` - плотность планеты
+/// * `speed` - начальная скорость `Vec2`
+/// * `color` - цвет планеты
+/// * `zoner` - множитель зоны гравитации
+///
+/// # Пример
+/// ```
+/// spawn_planet(
+///     (&mut commands, &mut meshes, &mut materials),
+///     10.0,
+///     (0.0, 0.0, 0.0),
+///     3.8e8,
+///     Vec2::new(0.0, 0.0),
+///     Color::WHITE,
+///     5.0,
+/// );
+/// ```
+pub fn spawn_planet(
+    ext: (
+        &mut Commands,
+        &mut ResMut<Assets<Mesh>>,
+        &mut ResMut<Assets<ColorMaterial>>,
+    ),
+    radius: f32,
+    pos: (f32, f32, f32),
+    density: f32,
+    speed: Vec2,
+    color: Color,
+    zoner: f32,
+) {
+    let (mass, planet_pre_gravity, volume) = planet_prepare(density, radius);
+    let compound = vec![(Vec2::new(0.0, 0.0), 0.0_f32, Collider::ball(radius))];
+
+    let planet_bundle = PlanetBundle {
+        mesh: Mesh2d(ext.1.add(Circle::new(radius))),
+        material: MeshMaterial2d(ext.2.add(color)),
+        transform: Transform::from_xyz(pos.0, pos.1, pos.2),
+        rigid_body: RigidBody::Dynamic,
+        collider: Collider::compound(compound),
+        velocity: Velocity {
+            linvel: speed,
+            angvel: 0.01,
+        },
+        radius: PlanetRadius(radius),
+        planet_volume: PlanetVolume(volume),
+        planet_density: PlanetDensity(density),
+        planet_pre_gravity: PlanetPreGravity(planet_pre_gravity),
+        friction: Friction::coefficient(0.5),
+        restitution: Restitution::coefficient(0.0),
+        external_force: ExternalForce {
+            force: Vec2::new(0.0, 0.0),
+            torque: 0.0,
+        },
+        gravity_scale: GravityScale(0.0),
+        mass: AdditionalMassProperties::Mass(mass),
+        zone: PlanetExtraGravZone(zoner),
+        planet: Planet,
+        active_events: ActiveEvents::COLLISION_EVENTS,
+        nearest_by_gravity_object: NearestObject(Some(Entity::PLACEHOLDER)),
+    };
+
+    ext.0.spawn(planet_bundle).with_children(|parent| {
+        parent.spawn((
+            Mesh2d(ext.1.add(Circle::new(zoner * radius))),
+            MeshMaterial2d(ext.2.add(Color::srgba(0.45, 0.56, 0.59, 0.1))),
+            Transform::from_xyz(0.0, 0.0, pos.2 - 4.0),
+        ));
+        parent
+            .spawn((
+                Visibility::Visible,
+                Transform {
+                    translation: Vec3::new(0.0, 0.0, 5.0),
+                    rotation: Quat::from_rotation_z(PI / 2.0),
+                    scale: Vec3::ONE,
+                },
+                PlanetInfo,
+            ))
+            .with_children(|grandparent| {
+                grandparent.spawn((
+                    Visibility::Inherited,
+                    Text2d::new(format!("{}", radius / 10.0)),
+                    TextFont {
+                        font: default(),
+                        font_size: 30.0,
+                        font_smoothing: default(),
+                    },
+                    TextColor(Color::WHITE),
+                    Transform {
+                        translation: Vec3::new(-radius, radius, 0.1),
+                        rotation: Quat::from_rotation_z(PI / 2.0),
+                        scale: Vec3::ONE,
+                    },
+                    PlanetInfoText,
+                ));
+            });
+
+        parent
+            .spawn((
+                Visibility::Visible,
+                Transform {
+                    translation: Vec3::new(0.0, 0.0, 0.1),
+                    rotation: Quat::from_rotation_z(PI / 2.0),
+                    scale: Vec3::ONE,
+                },
+                PlanetInfoZone,
+            ))
+            .with_children(|grandparent| {
+                for i in 0..4 {
+                    grandparent.spawn((
+                        Visibility::Inherited,
+                        Mesh2d(ext.1.add(Rectangle::new(2.2 * radius, 1.5))),
+                        MeshMaterial2d(ext.2.add(Color::srgba(0.0, 0.9, 1.0, 1.0))),
+                        Transform {
+                            translation: Vec3::new(
+                                radius * 1.1 * ((i as f32) * PI / 2.0).cos(),
+                                radius * 1.1 * ((i as f32) * PI / 2.0).sin(),
+                                5.1,
+                            ),
+                            rotation: Quat::from_rotation_z((i as f32) * PI / 2.0 + PI / 2.0),
+                            scale: Vec3::ONE,
+                        },
+                        FrameComponent,
+                    ));
+                }
+            });
+    });
+}
+
+/// Сброс всех сил перед новым вычислением
+///
+/// Обнуляет внешние силы для игрока и всех планет
+fn reset_forces_system(
+    mut player_query: Query<&mut ExternalForce, (With<Rec>, Without<Planet>)>,
+    mut planet_query: Query<&mut ExternalForce, With<Planet>>,
+) {
+    for mut force in player_query.iter_mut() {
+        force.force = Vec2::ZERO;
+        force.torque = 0.0;
+    }
+    for mut force in planet_query.iter_mut() {
+        force.force = Vec2::ZERO;
+        force.torque = 0.0;
+    }
+}
+
+/// Система гравитации между планетами
+///
+/// Вычисляет взаимное гравитационное влияние всех планет друг на друга
+fn world_gravity_for_planets_system(
     mut planet_query: Query<
         (
             &PlanetPreGravity,
             &mut ExternalForce,
             &Transform,
             &AdditionalMassProperties,
+            &PlanetRadius,
+            &PlanetExtraGravZone,
         ),
         With<Planet>,
     >,
 ) {
-    let planets: Vec<(Vec2, f32)> = planet_query
+    let planets: Vec<(Vec2, f32, f32, f32)> = planet_query
         .iter()
-        .map(|(_, _, transform, mass)| {
+        .map(|(_pre_gravity, _, transform, mass, radius, zone)| {
             let mass = match mass {
                 AdditionalMassProperties::Mass(m) => *m,
                 _ => 0.0,
             };
-            (transform.translation.truncate(), mass)
+            (transform.translation.truncate(), mass, radius.0, zone.0)
         })
         .collect();
 
-    for (planet_pre_gravity_1, mut external_force_planet_1, transform_planet_1, _mass) in
-        planet_query.iter_mut()
+    for (
+        planet_pre_gravity_1,
+        mut external_force_planet_1,
+        transform_planet_1,
+        _mass,
+        radius_1,
+        zone_1,
+    ) in planet_query.iter_mut()
     {
         let mut full_ext_planets_force = (0.0, 0.0);
 
-        for (transform_planet_2, get_mass_2) in &planets {
+        for (transform_planet_2, get_mass_2, radius_2, zone_2) in &planets {
             let dx = transform_planet_1.translation.x - transform_planet_2.x;
             let dy = transform_planet_1.translation.y - transform_planet_2.y;
 
@@ -209,234 +713,149 @@ fn world_gravity_for_planets(
             if range < 0.0001 {
                 continue;
             }
+            let gravity_x: f32;
+            let gravity_y: f32;
 
-            full_ext_planets_force.0 += planet_pre_gravity_1.0 / range.powf(3.0) * dx * get_mass_2;
-            full_ext_planets_force.1 += planet_pre_gravity_1.0 / range.powf(3.0) * dy * get_mass_2;
-        }
-
-        external_force_planet_1.force.x = -full_ext_planets_force.0;
-        external_force_planet_1.force.y = -full_ext_planets_force.1;
-    }
-}
-
-fn camera_system(
-    time: Res<Time>,
-    mut scroll_events: EventReader<MouseWheel>,
-    player_query: Query<
-        (&mut Velocity, &mut Transform, &mut Dir, &mut IsFly),
-        (With<Rec>, Without<Planet>),
-    >,
-    mut camera_query: Query<
-        (&mut Transform, &mut Campos, &mut OrthographicProjection),
-        (With<Camera2d>, Without<Rec>),
-    >,
-) {
-    for (mut transform, cam_pos, mut ortho) in &mut camera_query {
-        for (_vel, transform_p, _direction, _fly) in &player_query {
-            transform.translation = transform_p.translation;
-            ortho.scale = cam_pos.0;
-        }
-    }
-
-    for event in scroll_events.read() {
-        for (_transform, mut cam_pos, _ortho) in &mut camera_query {
-            cam_pos.0 += event.y * 10.0 * time.delta_secs();
-        }
-    }
-}
-
-
-fn player_control(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut player_query: Query<
-        (
-            &mut Transform,
-            &mut ExternalForce,
-            &mut Velocity,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
-) {
-    for (transform, mut external_force, mut velocity, _, mut direction, mut fly) in
-        player_query.iter_mut()
-    {
-        let mut full_ext_forse = (0.0, 0.0);
-        let mut full_velocity = (0.0, 0.0);
-
-        //для походов
-
-        if keys.just_pressed(KeyCode::KeyF) {
-            if fly.0 == true {
-                fly.0 = false
+            if range > *radius_2 * *zone_2 + zone_1.0 * radius_1.0 {
+                gravity_x =
+                    planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0) * (dx / range);
+                gravity_y =
+                    planet_pre_gravity_1.0 * get_mass_2 / (range / zone_2).powf(2.0) * (dy / range);
             } else {
-                fly.0 = true
+                gravity_x = -9.8 * MORESIZE * dx * get_mass_2 / range.powf(2.0);
+                gravity_y = -9.8 * MORESIZE * dy * get_mass_2 / range.powf(2.0);
             }
+
+            full_ext_planets_force.0 += gravity_x;
+            full_ext_planets_force.1 += gravity_y;
         }
 
-        if fly.0 == false {
-            if keys.pressed(KeyCode::KeyD){
-                full_velocity.0 = (direction.0 - PI / 2.0).cos() * 3.0;
-                full_velocity.1 = (direction.0 - PI / 2.0).sin() * 3.0;
-            }
-
-            if keys.pressed(KeyCode::KeyA){
-                full_velocity.0 = (direction.0 + PI / 2.0).cos() * 3.0;
-                full_velocity.1 = (direction.0 + PI / 2.0).sin() * 3.0;
-            }
-
-            if keys.just_pressed(KeyCode::KeyW) {
-                full_ext_forse.0 = (direction.0).cos() * 600000.0;
-                full_ext_forse.1 = (direction.0).sin() * 600000.0;
-            }
-        } else {
-            //для полетов
-
-            if keys.pressed(KeyCode::KeyD) {
-                external_force.torque -= 20000.0;
-            }
-
-            if keys.pressed(KeyCode::KeyA) {
-                external_force.torque += 20000.0;
-            }
-
-            if keys.pressed(KeyCode::KeyW) {
-                full_ext_forse.0 += direction.0.cos() * 60000.0;
-                full_ext_forse.1 += direction.0.sin() * 60000.0;
-            }
-            if keys.pressed(KeyCode::KeyS) {
-                full_ext_forse.0 -= direction.0.cos() * 60000.0;
-                full_ext_forse.1 -= direction.0.sin() * 60000.0;
-            }
-        }
-        let forward = transform.local_x();
-        direction.0 = forward.y.atan2(forward.x);
-
-        velocity.linvel.x += full_velocity.0;
-        velocity.linvel.y += full_velocity.1;
-        external_force.force.x += full_ext_forse.0;
-        external_force.force.y += full_ext_forse.1;
+        external_force_planet_1.force.x -= full_ext_planets_force.0;
+        external_force_planet_1.force.y -= full_ext_planets_force.1;
     }
 }
 
-
-fn all_player_moving(
-    keys: Res<ButtonInput<KeyCode>>,
-
+/// Система поиска ближайшего по гравитации объекта
+///
+/// Для каждой планеты определяет объект (планету или звезду),
+/// который оказывает на нее наибольшее гравитационное влияние
+fn get_nearest_gravity_obj_system(
     mut planet_query: Query<
         (
-            &PlanetPreGravity,
-            &mut ExternalForce,
+            Entity,
             &Transform,
             &AdditionalMassProperties,
+            &PlanetPreGravity,
+            &PlanetRadius,
+            &PlanetExtraGravZone,
+            &mut NearestObject,
         ),
         With<Planet>,
     >,
-    mut player_query: Query<
-        (
-            &mut Transform,
-            &mut ExternalForce,
-            &mut Velocity,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
-) {
-    for (mut transform, mut external_force, mut velocity, mass, mut direction, mut isFly) in
-        &mut player_query
-    {
-        reset_player_moving(&mut external_force, &mut velocity);
-    }
-    player_gravity_moving(keys, player_query, planet_query);
-    
-}
 
-fn reset_player_moving(external_force: &mut ExternalForce, velocity: &mut Velocity) {
-    external_force.force = Vec2::ZERO;
-    external_force.torque = 0.0;
-}
-fn player_gravity_moving(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut player_query: Query<
+    star_query: Query<
         (
-            &mut Transform,
-            &mut ExternalForce,
-            &mut Velocity,
-            &AdditionalMassProperties,
-            &mut Dir,
-            &mut IsFly,
-        ),
-        (With<Rec>, Without<Planet>),
-    >,
-    mut planet_query: Query<
-        (
-            &PlanetPreGravity,
-            &mut ExternalForce,
+            Entity,
             &Transform,
             &AdditionalMassProperties,
+            &PlanetPreGravity,
         ),
-        With<Planet>,
+        With<Star>,
     >,
 ) {
-    for (mut transform, mut external_force, mut velocity, mass, direction, fly) in player_query.iter_mut()
+    let planets: Vec<(Entity, Vec2, f32, f32, f32, f32)> = planet_query
+        .iter()
+        .map(|(entity, transform, mass, pre_gravity, radius, zone, _)| {
+            let mass = match mass {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
+            (
+                entity,
+                transform.translation.truncate(),
+                mass,
+                pre_gravity.0,
+                radius.0,
+                zone.0,
+            )
+        })
+        .collect();
+
+    for (
+        entity_1,
+        transform_planet_1,
+        mass_1,
+        planet_pre_gravity_1,
+        radius_1,
+        zone_1,
+        mut nearest_by_gravity_object_1,
+    ) in planet_query.iter_mut()
     {
-        let mut get_mass = 0.0;
-        match *mass {
-            AdditionalMassProperties::Mass(m) => get_mass = m,
-            _ => get_mass = 0.0,
-        }
+        let mass_1 = match mass_1 {
+            AdditionalMassProperties::Mass(m) => *m,
+            _ => 0.0,
+        };
 
-        let mut full_ext_forse = (0.0, 0.0);
-        let mut min_dx = 0.0;
-        let mut min_dy = 0.0;
-        let mut max_grav = 0.0;
-        let mut range_m = 0.0;
-
-        for (planet_pre_gravity, mut external_force_planet, transform_planet, _massiv) in
-            &mut planet_query
+        let mut nearest_entity_half_gravity = 0.0;
+        for (entity_2, transform_planet_2, _mass_2, planet_pre_gravity_2, radius_2, zone_2) in
+            &planets
         {
-            let dx = transform_planet.translation.x - transform.translation.x;
-            let dy = transform_planet.translation.y - transform.translation.y;
+            let dx = transform_planet_1.translation.x - transform_planet_2.x;
+            let dy = transform_planet_1.translation.y - transform_planet_2.y;
 
-            let range = (dx.powf(2.0) + dy.powf(2.0)).powf(0.5);
+            let range = (dx * dx + dy * dy).powf(0.5);
 
-            let gravity_x = planet_pre_gravity.0 / range.powf(3.0) * dx * get_mass;
-            let gravity_y = planet_pre_gravity.0 / range.powf(3.0) * dy * get_mass;
-
-            if ((gravity_x.powf(2.0) + gravity_y.powf(2.0)).abs()).powf(0.5) > max_grav {
-                max_grav = (gravity_x.powf(2.0) + gravity_y.powf(2.0)).powf(0.5);
-                min_dx = dx;
-                min_dy = dy;
-
-                range_m = range;
+            if range < 0.0001 || entity_1 == *entity_2 {
+                continue;
             }
 
-            full_ext_forse.0 += gravity_x;
-            full_ext_forse.1 += gravity_y;
+            let half_gravity_x: f32;
+            let half_gravity_y: f32;
 
-            external_force_planet.force.x = -full_ext_forse.0;
-            external_force_planet.force.y = -full_ext_forse.1;
+            if range > *radius_2 * *zone_2 + zone_1.0 * radius_1.0 {
+                half_gravity_x =
+                    *planet_pre_gravity_2 * mass_1 / (range / zone_2).powf(2.0) * (dx / range);
+                half_gravity_y =
+                    *planet_pre_gravity_2 * mass_1 / (range / zone_2).powf(2.0) * (dy / range);
+            } else {
+                half_gravity_x = -9.8 * MORESIZE * dx / range.powf(2.0);
+                half_gravity_y = -9.8 * MORESIZE * dy / range.powf(2.0);
+            }
+
+            let half_gravity_vec = (half_gravity_x.powf(2.0) + half_gravity_y.powf(2.0)).sqrt();
+
+            if half_gravity_vec > nearest_entity_half_gravity {
+                nearest_by_gravity_object_1.0 = Some(*entity_2);
+                nearest_entity_half_gravity = half_gravity_vec;
+            }
         }
 
-        if fly.0 == false {
-            external_force.force.x += full_ext_forse.0 * range_m.powf(0.6);
-            external_force.force.y += full_ext_forse.1 * range_m.powf(0.6);
+        for (entity_2, transform_planet_2, mass_2, _planet_pre_gravity_2) in star_query.iter() {
+            let mass_2 = match mass_2 {
+                AdditionalMassProperties::Mass(m) => *m,
+                _ => 0.0,
+            };
 
-            let direction = Vec2::new(min_dx, min_dy).normalize();
+            let dx = transform_planet_1.translation.x - transform_planet_2.translation.x;
+            let dy = transform_planet_1.translation.y - transform_planet_2.translation.y;
 
-            let angle = direction.y.atan2(direction.x);
-            transform.rotation = Quat::from_rotation_z(angle + PI);
+            let range = (dx * dx + dy * dy).powf(0.5);
 
-            velocity.angvel = 0.0;
-            //   println!("{} {}", external_force.force.x, external_force.force.y);
-        } else {
-            external_force.force.x += full_ext_forse.0;
-            external_force.force.y += full_ext_forse.1;
+            if range < 0.0001 || entity_1 == entity_2 {
+                continue;
+            }
+
+            let half_gravity_x =
+                planet_pre_gravity_1.0 * mass_2 / (range / zone_1.0).powf(2.0) * (dx / range);
+            let half_gravity_y =
+                planet_pre_gravity_1.0 * mass_2 / (range / zone_1.0).powf(2.0) * (dy / range);
+
+            let half_gravity_vec = (half_gravity_x.powf(2.0) + half_gravity_y.powf(2.0)).sqrt();
+
+            if half_gravity_vec > nearest_entity_half_gravity {
+                nearest_by_gravity_object_1.0 = Some(entity_2);
+                nearest_entity_half_gravity = half_gravity_vec;
+            }
         }
     }
-    player_control(keys, player_query);
 }
